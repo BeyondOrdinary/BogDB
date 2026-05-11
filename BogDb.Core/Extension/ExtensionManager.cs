@@ -21,6 +21,21 @@ namespace BogDb.Core.Extension;
 /// </summary>
 public sealed class ExtensionManager : IDisposable
 {
+    private static readonly IReadOnlyDictionary<string, string> KnownExtensionAssemblies =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["algo"] = "BogDb.Extensions.Algo",
+            ["demo"] = "BogDb.Extensions.Demo",
+            ["duckdb"] = "BogDb.Extensions.DuckDB",
+            ["fts"] = "BogDb.Extensions.FTS",
+            ["httpfs"] = "BogDb.Extensions.HttpFS",
+            ["json"] = "BogDb.Extensions.Json",
+            ["llm"] = "BogDb.Extensions.LLM",
+            ["postgres"] = "BogDb.Extensions.Postgres",
+            ["sqlite"] = "BogDb.Extensions.SQLite",
+            ["vector"] = "BogDb.Extensions.Vector",
+        };
+
     private readonly Main.BogDatabase _database;
     
     // We isolate loaded paths dynamically generating separate ALC instances
@@ -53,13 +68,16 @@ public sealed class ExtensionManager : IDisposable
     {
         // Capitalize extension properly matching local project namespaces. e.g httpfs -> HttpFS
         // Actually, just resolve by the standard generic name BogDb.Extensions.{name}.dll
-        var standardName = $"BogDb.Extensions.{extensionName}";
+        var standardName = KnownExtensionAssemblies.TryGetValue(extensionName, out var knownAssembly)
+            ? knownAssembly
+            : $"BogDb.Extensions.{extensionName}";
         
         var probingPaths = new[]
         {
             Path.Combine(AppContext.BaseDirectory, $"{standardName}.dll"),
             Path.Combine(Environment.CurrentDirectory, $"{standardName}.dll"),
-            Path.Combine(Environment.CurrentDirectory, "bin", "Debug", "net9.0", $"{standardName}.dll")
+            Path.Combine(Environment.CurrentDirectory, "bin", "Debug", "net9.0", $"{standardName}.dll"),
+            Path.Combine(Environment.CurrentDirectory, "bin", "Release", "net9.0", $"{standardName}.dll")
         };
 
         var resolvedPath = probingPaths.FirstOrDefault(File.Exists);

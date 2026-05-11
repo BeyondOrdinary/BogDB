@@ -9,6 +9,15 @@ namespace BogDb.Tests.Extension;
 
 public class ExtensionStatementIntegrationTests
 {
+    private static string GetExtensionAssemblyPath(string projectName)
+    {
+        var targetDirectory = new DirectoryInfo(AppContext.BaseDirectory);
+        var configuration = targetDirectory.Parent?.Name ?? "Debug";
+        var solutionRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+
+        return Path.Combine(solutionRoot, projectName, "bin", configuration, "net9.0", $"{projectName}.dll");
+    }
+
     private sealed class StandaloneHelloFunction : ITableFunction
     {
         public string Name => "hello_ext";
@@ -55,8 +64,7 @@ public class ExtensionStatementIntegrationTests
         using var db = BogDatabase.CreateInMemory();
         using var conn = new BogConnection(db);
 
-        var solutionRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        var demoDllPath = Path.Combine(solutionRoot, "BogDb.Extensions.Demo", "bin", "Debug", "net9.0", "BogDb.Extensions.Demo.dll");
+        var demoDllPath = GetExtensionAssemblyPath("BogDb.Extensions.Demo");
         var cypherPath = demoDllPath.Replace('\\', '/');
 
         var result = conn.Query($"LOAD EXTENSION '{cypherPath}'");

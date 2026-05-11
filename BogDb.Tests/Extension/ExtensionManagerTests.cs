@@ -15,6 +15,15 @@ namespace BogDb.Tests.Extension;
 
 public class ExtensionManagerTests
 {
+    private static string GetExtensionAssemblyPath(string projectName)
+    {
+        var targetDirectory = new DirectoryInfo(AppContext.BaseDirectory);
+        var configuration = targetDirectory.Parent?.Name ?? "Debug";
+        var solutionRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+
+        return Path.Combine(solutionRoot, projectName, "bin", configuration, "net9.0", $"{projectName}.dll");
+    }
+
     [Fact]
     public void ExtensionManager_ThrowsFileNotFound_WhenDllMissing()
     {
@@ -39,11 +48,7 @@ public class ExtensionManagerTests
         var database = BogDb.Core.Main.BogDatabase.Open(":memory:");
         var manager = new ExtensionManager(database);
 
-        // Find the adjacent compiled DLL natively
-        var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        // Move up from BogDb.Tests/bin/Debug/net9.0/ to BogDB/
-        var solutionRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        var demoDllPath = Path.Combine(solutionRoot, "BogDb.Extensions.Demo", "bin", "Debug", "net9.0", "BogDb.Extensions.Demo.dll");
+        var demoDllPath = GetExtensionAssemblyPath("BogDb.Extensions.Demo");
 
         // Act
         // This validates .NET 10 AssemblyLoadContext can sandbox entirely external plugins structurally
