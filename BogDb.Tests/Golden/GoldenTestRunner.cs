@@ -492,8 +492,8 @@ public static class GoldenTestRunner
     {
         if (value is null || value is DBNull) return "<null>";
         if (value is BogDbInterval interval) return TypeCoercionHelper.ToBogDbString(interval) ?? "<null>";
-        if (value is double d) return d.ToString("G17");
-        if (value is float  f) return f.ToString("G9");
+        if (value is double d) return NormalizeFloatingPoint(d, "G17");
+        if (value is float  f) return NormalizeFloatingPoint(f, "G9");
         if (TryNormalizeNested(value, out var nested)) return nested;
         return value.ToString() ?? "<null>";
     }
@@ -656,8 +656,8 @@ public static class GoldenTestRunner
         for (var i = 0; i < actualRow.Count; i++)
         {
             if (!string.Equals(
-                    NormalizeLineEndings(actualRow[i]),
-                    NormalizeLineEndings(expectedRow[i]),
+                    NormalizeGoldenText(actualRow[i]),
+                    NormalizeGoldenText(expectedRow[i]),
                     StringComparison.Ordinal))
             {
                 return false;
@@ -665,6 +665,21 @@ public static class GoldenTestRunner
         }
 
         return true;
+    }
+
+    private static string NormalizeFloatingPoint(double value, string format)
+    {
+        if (double.IsNegativeInfinity(value)) return "-Infinity";
+        if (double.IsPositiveInfinity(value)) return "Infinity";
+        if (double.IsNaN(value)) return "NaN";
+        return value.ToString(format, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static string NormalizeGoldenText(string? value)
+    {
+        return NormalizeLineEndings(value)
+            .Replace("-∞", "-Infinity", StringComparison.Ordinal)
+            .Replace("∞", "Infinity", StringComparison.Ordinal);
     }
 
     private static string NormalizeLineEndings(string? value)
