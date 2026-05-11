@@ -1,0 +1,41 @@
+@inherits LayoutComponentBase
+
+<div class="app-shell">
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <a class="sidebar-logo" href="/">
+                <div class="sidebar-logo-icon">🥑</div>
+                <div>
+                    <div class="sidebar-logo-title">NutriGraph</div>
+                    <div class="sidebar-logo-sub">BogDB · Dietary Graph</div>
+                </div>
+            </a>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-section-label">Dietary Intelligence</div>
+            <NavLink class="nav-link" href="/" Match="NavLinkMatch.All">
+                <span class="nav-link-icon">⬡</span>Dashboard
+            </NavLink>
+            <NavLink class="nav-link" href="/search">
+                <span class="nav-link-icon">🔍</span>Recipe Search
+            </NavLink>
+
+            <div class="nav-section-label" style="margin-top:16px">Graph Engine</div>
+            <NavLink class="nav-link" href="/diet-lab">
+                <span class="nav-link-icon">📉</span>Dietary Lab
+            </NavLink>
+            <NavLink class="nav-link" href="/query">
+                <span class="nav-link-icon">⌨</span>Cypher Editor
+            </NavLink>
+        </nav>
+
+        <div class="sidebar-footer">
+            BogDB · NutriGraph Sample · .NET 9
+        </div>
+    </aside>
+
+    <main class="main-content">
+        @Body
+    </main>
+</div>

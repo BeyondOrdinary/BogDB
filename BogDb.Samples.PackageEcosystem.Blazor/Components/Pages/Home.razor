@@ -1,0 +1,91 @@
+@page "/"
+@rendermode InteractiveServer
+@inject PackageEcosystemGraphService Graph
+
+<PageTitle>Dashboard — PackageEcosystem</PageTitle>
+
+<div class="page-header">
+    <h1>Package Ecosystem Dashboard</h1>
+    <p class="page-sub">EF Core SQLite feeds BogDB graph snapshots — all analytics via <code>GraphShardLocalRuntime</code></p>
+</div>
+
+@if (_stats is null)
+{
+    <div class="loading">Loading...</div>
+}
+else
+{
+    <div class="stat-grid">
+        <div class="stat-card blue">
+            <div class="stat-value">@_snapshots.Count</div>
+            <div class="stat-label">Quarterly Snapshots</div>
+        </div>
+        <div class="stat-card purple">
+            <div class="stat-value">@_stats.TotalPackages</div>
+            <div class="stat-label">Unique Packages</div>
+        </div>
+        <div class="stat-card teal">
+            <div class="stat-value">@_stats.TotalReleases</div>
+            <div class="stat-label">Versioned Releases</div>
+        </div>
+        <div class="stat-card amber">
+            <div class="stat-value">@_stats.TotalVulns</div>
+            <div class="stat-label">Known Vulnerabilities</div>
+        </div>
+        <div class="stat-card red">
+            <div class="stat-value">@_stats.CriticalVulns</div>
+            <div class="stat-label">CRITICAL CVEs</div>
+        </div>
+        <div class="stat-card orange">
+            <div class="stat-value">@_stats.HighVulns</div>
+            <div class="stat-label">HIGH CVEs</div>
+        </div>
+        <div class="stat-card gray">
+            <div class="stat-value">@_stats.YankedReleases</div>
+            <div class="stat-label">Yanked Releases</div>
+        </div>
+    </div>
+
+    <div class="card-grid">
+        <div class="card">
+            <h2>Snapshot Timeline</h2>
+            <table class="data-table">
+                <thead><tr><th>Label</th><th>Date</th><th>Packages</th><th>Deps</th><th>Vulns</th></tr></thead>
+                <tbody>
+                @foreach (var snap in _snapshots)
+                {
+                    <tr>
+                        <td><span class="badge badge-blue">@snap.Label</span></td>
+                        <td>@snap.TakenAt.ToString("yyyy-MM-dd")</td>
+                        <td>@snap.PackageCount</td>
+                        <td>@snap.DepCount</td>
+                        <td>@snap.VulnCount</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h2>Graph-Native Moment</h2>
+            <div class="callout">
+                <p>👉 A relational DB needs recursive CTEs to trace <em>log4j-core → slf4j → spring-core → spring-boot</em>. BogDB resolves it with:</p>
+                <pre class="cypher-block">MATCH (r:Release {{package_name:'spring-boot'}})-[:DEPENDS_ON*1..5]->(dep:Release)
+WHERE r.snapshot_label = 'Q1-2024'
+RETURN DISTINCT dep.package_name, dep.version</pre>
+                <p>The extraction layer adds snapshot change review, histogram analytics, neighborhood projection, and selection-family grouping — all without additional Cypher.</p>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private DashboardStats?       _stats;
+    private List<SnapshotSummary> _snapshots = [];
+
+    protected override void OnInitialized()
+    {
+        _stats     = Graph.GetDashboardStats();
+        _snapshots = Graph.GetSnapshots();
+    }
+}

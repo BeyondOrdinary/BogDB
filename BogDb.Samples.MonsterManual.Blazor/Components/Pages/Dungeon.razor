@@ -1,0 +1,176 @@
+@page "/dungeon"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject BogDb.Samples.MonsterManual.Blazor.Services.MonsterGraphService Svc
+@inject IJSRuntime JS
+
+<PageTitle>Dungeon Planner · BogDb</PageTitle>
+
+<div class="page-header">
+    <h1 class="page-title">🏰 Dungeon Planner</h1>
+    <p class="page-subtitle">Analyze the aggregate challenge rating of your deployed monsters via live graph traversal.</p>
+</div>
+
+<div style="display:flex;gap:32px;align-items:flex-start">
+
+    <!-- Left: stats panel -->
+    <div style="width:320px;flex-shrink:0;">
+        <div class="card" style="padding:24px;">
+            <div class="card-title">Encounter Analysis</div>
+
+            <div style="font-size:52px;font-family:var(--font-serif);color:var(--red-primary);font-weight:700;line-height:1">
+                @_totalXp <span style="font-size:22px;color:var(--text-muted)">XP</span>
+            </div>
+
+            <div style="margin:10px 0 16px;color:var(--text-muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em">
+                Threat Level: <span style="color:@GetThreatColor();font-size:13px">@GetThreatLevel()</span>
+            </div>
+
+            <!-- Threat meter bar -->
+            <div style="height:8px;background:var(--bg-panel);border-radius:4px;overflow:hidden;margin-bottom:20px;border:1px solid var(--border)">
+                <div style="height:100%;width:@ThreatPercent()%;background:linear-gradient(90deg, var(--gold), var(--red-primary));transition:width 0.4s ease;border-radius:4px"></div>
+            </div>
+
+            <p style="font-size:13px;line-height:1.6;color:var(--text-secondary)">
+                <strong>@_monsters.Count</strong> adversar@(_monsters.Count == 1 ? "y" : "ies") bound via
+                <code>[IN_DUNGEON]</code> edges.
+            </p>
+
+            <button class="btn btn-ghost" style="width:100%;margin-top:10px" @onclick="Refresh">
+                🔄 Refresh
+            </button>
+        </div>
+
+        @if (_lastQuery != null)
+        {
+            <div class="card" style="padding:16px;">
+                <div class="card-title" style="font-size:13px;margin-bottom:8px">Aggregation Cypher</div>
+                <div class="cyber-code" style="font-size:10px;padding:10px">@_lastQuery</div>
+            </div>
+        }
+    </div>
+
+    <!-- Right: chart + roster -->
+    <div style="flex:1;min-width:0">
+
+        <!-- Chart -->
+        <div class="card">
+            <h3 class="card-title">XP Distribution</h3>
+            @if (_monsters.Count == 0)
+            {
+                <div style="height:260px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px">
+                    <div style="font-size:44px;opacity:0.3">📊</div>
+                    <div style="color:var(--text-muted);font-style:italic;font-size:14px">No monsters deployed — add some via the Monster Browser.</div>
+                </div>
+            }
+            else
+            {
+                <div style="position:relative;height:260px;width:100%">
+                    <canvas id="xpChart"></canvas>
+                </div>
+            }
+        </div>
+
+        <!-- Roster table -->
+        <div class="card">
+            <h3 class="card-title">Deployed Roster</h3>
+            @if (_monsters.Count == 0)
+            {
+                <div class="alert alert-info" style="margin:0">Add monsters via the Monster Browser to build your encounter.</div>
+            }
+            else
+            {
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>CR</th>
+                            <th>XP</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var m in _monsters)
+                        {
+                            <tr>
+                                <td style="font-weight:600;color:var(--red-primary)">@m["name"]</td>
+                                <td style="color:var(--text-secondary)">@m["type"]</td>
+                                <td>@m["cr"]</td>
+                                <td style="color:var(--gold);font-weight:700">@m["xp"]</td>
+                                <td style="text-align:right">
+                                    <button class="btn btn-ghost" style="font-size:11px;padding:4px 12px;color:var(--text-muted)"
+                                            @onclick='() => Remove(m["id"]?.ToString() ?? "")'>Dismiss</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<Dictionary<string, object?>> _monsters = new();
+    private int _totalXp = 0;
+    private string? _lastQuery;
+
+    protected override void OnInitialized() => Refresh();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_monsters.Count > 0)
+            await RenderChart();
+    }
+
+    private void Refresh()
+    {
+        _lastQuery = @"MATCH (m:Monster)-[:IN_DUNGEON]->(d:Dungeon {id: 'dungeon-1'})
+RETURN m.id AS id, m.name AS name, m.type AS type, m.cr AS cr, m.xp AS xp
+ORDER BY m.xp DESC";
+
+        var res = Svc.Execute(_lastQuery);
+        if (res.IsSuccess)
+        {
+            _monsters = res.Rows;
+            _totalXp = _monsters.Sum(x => Convert.ToInt32(x["xp"]));
+        }
+    }
+
+    private string GetThreatLevel()
+    {
+        if (_totalXp == 0)   return "None";
+        if (_totalXp < 1000) return "Trivial";
+        if (_totalXp < 4000) return "Moderate";
+        if (_totalXp < 10000) return "Dangerous";
+        return "Deadly";
+    }
+
+    private string GetThreatColor()
+    {
+        if (_totalXp == 0)   return "var(--text-muted)";
+        if (_totalXp < 1000) return "#6b8e23";
+        if (_totalXp < 4000) return "var(--gold)";
+        if (_totalXp < 10000) return "#d47500";
+        return "var(--red-primary)";
+    }
+
+    private int ThreatPercent() => (int)Math.Min(100, _totalXp / 150.0);
+
+    private void Remove(string id)
+    {
+        Svc.RemoveFromDungeon(id, "dungeon-1");
+        Refresh();
+    }
+
+    private async Task RenderChart()
+    {
+        try
+        {
+            var labels = _monsters.Select(x => x["name"]?.ToString() ?? "").ToArray();
+            var data   = _monsters.Select(x => Convert.ToInt32(x["xp"])).ToArray();
+            await JS.InvokeVoidAsync("renderDungeonChart", labels, data);
+        }
+        catch { /* JS interop may not be ready on very first render */ }
+    }
+}

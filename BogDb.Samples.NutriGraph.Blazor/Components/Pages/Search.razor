@@ -1,0 +1,180 @@
+@page "/search"
+@rendermode InteractiveServer
+@inject BogDb.Samples.NutriGraph.Blazor.Services.NutriGraphService Svc
+@inject BogDb.Samples.NutriGraph.Blazor.Services.RecipeApiService Api
+
+<PageTitle>Recipe Search · NutriGraph</PageTitle>
+
+<div class="page-header">
+    <div class="page-title">🔍 Recipe Search</div>
+    <div class="page-subtitle">Search Spoonacular for recipes with real nutrition data. Exclude allergens before fetching.</div>
+</div>
+
+<div class="page-body">
+
+    @if (!Api.HasApiKey)
+    {
+        <div class="alert alert-warn">
+            <strong>⚠️ No API key.</strong> Set <code>"Spoonacular:ApiKey"</code> in <code>appsettings.json</code> to enable search.
+            Get a free key at <a href="https://spoonacular.com/food-api/console" target="_blank" style="color:var(--amber)">spoonacular.com</a>.
+        </div>
+    }
+
+    <div class="card" style="margin-bottom:20px">
+        <div class="card-title">Search & Allergen Filter</div>
+        <div style="display:flex;gap:12px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+            <input type="text" class="form-control" @bind="_searchTerm" placeholder="Search recipes (e.g. chicken, pasta, salad)" style="width:280px" />
+            <button class="btn btn-primary" @onclick="DoSearch" disabled="@(!Api.HasApiKey || _loading)">☁️ Fetch Recipes</button>
+            <div style="margin-left:auto;font-size:12px;color:var(--text-muted)">
+                Quick:
+                <a href="#" @onclick:preventDefault @onclick='() => QuickSearch("chicken")'>Chicken</a>,
+                <a href="#" @onclick:preventDefault @onclick='() => QuickSearch("salmon")'>Salmon</a>,
+                <a href="#" @onclick:preventDefault @onclick='() => QuickSearch("pasta")'>Pasta</a>,
+                <a href="#" @onclick:preventDefault @onclick='() => QuickSearch("salad")'>Salad</a>
+            </div>
+        </div>
+
+        <div style="margin-bottom:8px">
+            <label style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px">
+                Exclude Allergens / Intolerances
+            </label>
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+                @foreach (var intol in RecipeApiService.SupportedIntolerances)
+                {
+                    <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-primary);cursor:pointer;
+                                  padding:4px 10px;border-radius:100px;border:1px solid var(--border);
+                                  background:@(IsExcluded(intol) ? "rgba(244,63,94,0.15)" : "transparent");
+                                  transition:all .15s">
+                        <input type="checkbox" checked="@IsExcluded(intol)" @onchange="_ => ToggleIntolerance(intol)" style="accent-color:var(--red)" />
+                        @intol
+                    </label>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="loading"><div class="spinner"></div> Fetching from Spoonacular API and populating graph…</div>
+    }
+    else if (_results is not null)
+    {
+        <div class="card">
+            <div class="card-title">@_results.Count Recipes Ingested into Graph</div>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px">
+                All nutrition values are per serving, sourced from Spoonacular. Recipes are now queryable in the graph.
+            </p>
+
+            <div style="overflow-x:auto">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th>Recipe</th>
+                            <th>Cal</th>
+                            <th>Protein</th>
+                            <th>Sodium</th>
+                            <th>Mg</th>
+                            <th>Sugar</th>
+                            <th>Vit C</th>
+                            <th>Vit D</th>
+                            <th>Diets</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in _results)
+                        {
+                            <tr>
+                                <td>
+                                    @if (!string.IsNullOrEmpty(r["image"]?.ToString()))
+                                    {
+                                        <img src="@r["image"]" alt="" style="width:48px;height:36px;border-radius:4px;object-fit:cover" />
+                                    }
+                                </td>
+                                <td><strong>@r["title"]</strong></td>
+                                <td>@Fmt(r["cals"]) kcal</td>
+                                <td>@Fmt(r["protein"]) g</td>
+                                <td>
+                                    @{ var sod = ToDouble(r["sodium"]); }
+                                    <span style="color:@(sod > 800 ? "var(--red)" : sod > 400 ? "var(--amber)" : "var(--teal-400)")">@Fmt(r["sodium"]) mg</span>
+                                </td>
+                                <td>@Fmt(r["mag"]) mg</td>
+                                <td>
+                                    @{ var sug = ToDouble(r["sugar"]); }
+                                    <span style="color:@(sug > 20 ? "var(--amber)" : "var(--teal-400)")">@Fmt(r["sugar"]) g</span>
+                                </td>
+                                <td>@Fmt(r["vitc"]) mg</td>
+                                <td>@Fmt(r["vitd"]) mcg</td>
+                                <td style="font-size:10px;color:var(--text-secondary);max-width:160px">@r["diets"]</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private string _searchTerm = "chicken";
+    private bool _loading;
+    private List<Dictionary<string, object?>>? _results;
+    private HashSet<string> _excludedIntolerances = new();
+
+    private bool IsExcluded(string name) => _excludedIntolerances.Contains(name);
+    private void ToggleIntolerance(string name)
+    {
+        if (!_excludedIntolerances.Remove(name)) _excludedIntolerances.Add(name);
+    }
+
+    private async Task QuickSearch(string term)
+    {
+        _searchTerm = term;
+        await DoSearch();
+    }
+
+    private async Task DoSearch()
+    {
+        if (string.IsNullOrWhiteSpace(_searchTerm) || !Api.HasApiKey) return;
+
+        _loading = true;
+        StateHasChanged();
+
+        var intolerances = _excludedIntolerances.Count > 0
+            ? string.Join(",", _excludedIntolerances)
+            : null;
+
+        var apiResults = await Api.SearchRecipesAsync(_searchTerm, intolerances);
+
+        Svc.IngestSpoonacularRecipes(apiResults, _excludedIntolerances.ToList());
+
+        // Query back from the graph to prove ingest worked
+        var cypher = @"
+            MATCH (r:Recipe)-[:CONTAINS]->(i:Ingredient)
+            OPTIONAL MATCH (r)-[:TAGGED]->(d:DietLabel)
+            RETURN r.title AS title, r.image AS image,
+                   r.calories AS cals, r.protein_g AS protein,
+                   r.sodium_mg AS sodium, r.magnesium_mg AS mag,
+                   r.sugar_g AS sugar, r.vitamin_c_mg AS vitc,
+                   r.vitamin_d_mcg AS vitd,
+                   collect(DISTINCT d.name) AS diets
+            ORDER BY cals ASC";
+
+        var res = Svc.Execute(cypher);
+        _results = res.IsSuccess ? res.Rows : [];
+        _loading = false;
+    }
+
+    private static string Fmt(object? v)
+    {
+        if (v is null) return "0";
+        if (double.TryParse(v.ToString(), out var d)) return d.ToString("F1");
+        return v.ToString() ?? "0";
+    }
+
+    private static double ToDouble(object? v)
+    {
+        if (v is null) return 0;
+        return double.TryParse(v.ToString(), out var d) ? d : 0;
+    }
+}

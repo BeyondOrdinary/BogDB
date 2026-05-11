@@ -1,0 +1,96 @@
+@page "/"
+@rendermode InteractiveServer
+@inject BogDb.Samples.NutriGraph.Blazor.Services.NutriGraphService Svc
+@inject BogDb.Samples.NutriGraph.Blazor.Services.RecipeApiService Api
+
+<PageTitle>Dashboard · NutriGraph</PageTitle>
+
+<div class="page-header">
+    <div class="page-title">Dietary Intelligence Dashboard</div>
+    <div class="page-subtitle">Graph-powered recipe nutrition analysis with BogDB — filter by sodium, magnesium, sugar, protein, vitamin D, vitamin C, and allergens</div>
+</div>
+
+<div class="page-body">
+
+    @if (!Api.HasApiKey)
+    {
+        <div class="alert alert-warn" style="margin-bottom:24px">
+            <strong>⚠️ No Spoonacular API key configured.</strong>
+            <br/>Set <code>"Spoonacular:ApiKey"</code> in <code>appsettings.json</code> to enable live recipe search.
+            <br/>Get a free key at <a href="https://spoonacular.com/food-api/console" target="_blank" style="color:var(--amber);text-decoration:underline;">spoonacular.com/food-api/console</a> (150 requests/day free).
+        </div>
+    }
+
+    <div class="stat-grid" style="margin-bottom:24px">
+        <div class="stat-card">
+            <div class="stat-icon">🍲</div>
+            <div class="stat-data">
+                <div class="stat-value text-teal">@_stats.Recipes</div>
+                <div class="stat-label">Recipes</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">🧅</div>
+            <div class="stat-data">
+                <div class="stat-value text-amber">@_stats.Ingredients</div>
+                <div class="stat-label">Ingredients</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">🥗</div>
+            <div class="stat-data">
+                <div class="stat-value" style="color:var(--blue)">@_stats.DietLabels</div>
+                <div class="stat-label">Diet Labels</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">🚫</div>
+            <div class="stat-data">
+                <div class="stat-value" style="color:var(--red)">@_stats.Allergens</div>
+                <div class="stat-label">Allergens</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">📊</div>
+            <div class="stat-data">
+                <div class="stat-value text-teal">@_stats.NutrientPoints</div>
+                <div class="stat-label">Nutrient Data Points</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-title">How It Works</div>
+        <p style="color:var(--text-secondary); line-height:1.6; font-size:14px; margin-bottom:16px">
+            NutriGraph uses the <strong>Spoonacular API</strong> to pull real recipe data — including per-serving
+            sodium, magnesium, sugar, protein, vitamin D, and vitamin C — and stores it in a
+            <strong>BogDB</strong> in-memory graph alongside ingredients, diet labels, and allergen tags.
+        </p>
+        <ul style="color:var(--text-secondary); font-size:13px; line-height:1.8; margin-left: 20px;">
+            <li><strong>Recipe Search</strong> — Query the Spoonacular API, filter by allergen intolerances, and populate the graph with real nutrition data.</li>
+            <li><strong>Dietary Lab</strong> — Use 7 nutrient slider filters (sodium, magnesium, sugar, calories, protein, vitamin D, vitamin C) combined with allergen and diet label graph matches.</li>
+            <li><strong>Cypher Editor</strong> — Write arbitrary graph traversals to find recipes by nutrient profile, shared ingredients, or allergen-free combinations.</li>
+        </ul>
+    </div>
+
+    <div class="card">
+        <div class="card-title">Graph Model</div>
+        <div class="sc-learn-code-block" style="background:var(--bg-base)">
+<pre style="margin:0;padding:12px;font-size:11px">Recipe ─[CONTAINS]→ Ingredient     (recipe ingredients with original amounts)
+Recipe ─[TAGGED]→ DietLabel         (vegan, gluten-free, paleo, etc.)
+Recipe ─[FREE_FROM]→ Allergen       (dairy-free, soy-free, etc.)
+
+Recipe properties: calories, protein_g, sodium_mg, magnesium_mg,
+                   sugar_g, vitamin_d_mcg, vitamin_c_mg</pre>
+        </div>
+    </div>
+</div>
+
+@code {
+    private (int Recipes, int Ingredients, int DietLabels, int Allergens, int NutrientPoints) _stats;
+
+    protected override void OnInitialized()
+    {
+        _stats = Svc.GetStats();
+    }
+}

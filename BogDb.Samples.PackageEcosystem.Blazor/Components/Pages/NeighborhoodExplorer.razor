@@ -1,0 +1,154 @@
+@page "/neighborhood"
+@rendermode InteractiveServer
+@inject PackageEcosystemGraphService Graph
+
+<PageTitle>Neighborhood Explorer — PackageEcosystem</PageTitle>
+
+<div class="page-header">
+    <h1>Package Neighborhood Explorer</h1>
+    <p class="page-sub">Uses <code>ProjectNeighborhood(seedId, depth)</code> from <code>GraphShardLocalRuntime</code> to extract a depth-bounded subgraph — no Cypher traversal needed.</p>
+</div>
+
+<div class="card">
+    <div class="control-row">
+        <label>Snapshot:</label>
+        <select @bind="_snapshotLabel" class="select-input">
+            @foreach (var s in Graph.GetSnapshots())
+            {
+                <option value="@s.Label">@s.Label</option>
+            }
+        </select>
+        <label>Package ID:</label>
+        <select @bind="_packageId" class="select-input">
+            @foreach (var pkg in _packages)
+            {
+                <option value="@pkg.extId">@pkg.name (@pkg.eco)</option>
+            }
+        </select>
+        <label>Depth:</label>
+        <select @bind="_depth" class="select-input">
+            <option value="1">1 hop</option>
+            <option value="2" selected>2 hops</option>
+            <option value="3">3 hops</option>
+        </select>
+        <button class="btn-primary" @onclick="Explore">ProjectNeighborhood →</button>
+    </div>
+</div>
+
+@if (_result is not null)
+{
+    <div class="callout api-callout">
+        <strong>API called:</strong>
+        <code>runtime.ProjectNeighborhood("@_result.SeedId", depth: @_result.Depth)</code><br/>
+        <strong>Subgraph:</strong> @_result.Nodes.Count nodes, @_result.Edges.Count edges
+    </div>
+
+    <div class="card-grid">
+        <div class="card">
+            <h2>Nodes in Neighborhood (depth ≤ @_result.Depth)</h2>
+            <table class="data-table">
+                <thead><tr><th>Name</th><th>Version</th><th>Ecosystem</th><th>Type</th></tr></thead>
+                <tbody>
+                @foreach (var node in _result.Nodes.OrderBy(n => n.TableName).ThenBy(n => n.Name))
+                {
+                    <tr class="@(node.Id == _result.SeedId ? "row-highlight" : "")">
+                        <td>
+                            @if (node.Id == _result.SeedId)
+                            { <span class="badge badge-blue">seed</span> }
+                            @node.Name
+                        </td>
+                        <td>@node.Version</td>
+                        <td>@node.Ecosystem</td>
+                        <td><span class="badge badge-gray">@node.TableName</span></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h2>Dependency Edges</h2>
+            @if (!_result.Edges.Any())
+            {
+                <p class="dim">No edges in this subgraph.</p>
+            }
+            else
+            {
+                <table class="data-table">
+                    <thead><tr><th>From</th><th>Rel Type</th><th>To</th></tr></thead>
+                    <tbody>
+                    @foreach (var edge in _result.Edges)
+                    {
+                        var fromNode = _result.Nodes.FirstOrDefault(n => n.Id == edge.FromId);
+                        var toNode   = _result.Nodes.FirstOrDefault(n => n.Id == edge.ToId);
+                        <tr>
+                            <td>@(fromNode?.Name ?? edge.FromId)</td>
+                            <td><span class="badge badge-purple">@edge.RelType</span></td>
+                            <td>@(toNode?.Name ?? edge.ToId)</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Why This Is Graph-Native</h2>
+        <div class="callout">
+            <p><code>ProjectNeighborhood</code> does a BFS expansion on the in-memory shard, collecting all nodes and edges within the specified depth — returning a new <code>GraphShard</code> sub-extract. In SQL this requires:</p>
+            <ul>
+                <li>A recursive CTE or level-by-level self-join chain</li>
+                <li>Explicit de-duplication at every depth level</li>
+                <li>Manual boundary tracking for the outermost frontier</li>
+            </ul>
+            <p>In BogDB, the projection is a single runtime call that returns the subgraph as a normalized, ready-to-use shard.</p>
+        </div>
+    </div>
+}
+else if (_error is not null)
+{
+    <div class="error-card">@_error</div>
+}
+
+@code {
+    private string _snapshotLabel = "Q4-2024";
+    private string _packageId = "pkg-spring-boot";
+    private int    _depth = 2;
+    private NeighborhoodResult? _result;
+    private string? _error;
+
+    private List<(string extId, string name, string eco)> _packages = [];
+
+    protected override void OnInitialized()
+    {
+        LoadPackages();
+    }
+
+    private void LoadPackages()
+    {
+        var snaps = Graph.GetSnapshots();
+        // Use a fixed representative list for the dropdown
+        _packages =
+        [
+            ("pkg-spring-boot",  "spring-boot",    "maven"),
+            ("pkg-react",        "react",           "npm"),
+            ("pkg-flask",        "flask",           "pypi"),
+            ("pkg-django",       "django",          "pypi"),
+            ("pkg-newtonsoft",   "Newtonsoft.Json", "nuget"),
+            ("pkg-log4j-core",   "log4j-core",      "maven"),
+            ("pkg-jackson",      "jackson-databind","maven"),
+            ("pkg-axios",        "axios",           "npm"),
+            ("pkg-serilog",      "Serilog",         "nuget"),
+            ("pkg-celery",       "celery",          "pypi"),
+        ];
+    }
+
+    private void Explore()
+    {
+        _error = null;
+        _result = Graph.GetNeighborhood(_snapshotLabel, _packageId, _depth);
+        if (_result is null)
+            _error = $"Package '{_packageId}' not found in snapshot '{_snapshotLabel}'.";
+    }
+}

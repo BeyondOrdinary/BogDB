@@ -1,0 +1,28 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Nav
+
+<div class="app-shell">
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <span class="logo-icon">📦</span>
+            <div>
+                <div class="logo-title">PackageEcosystem</div>
+                <div class="logo-sub">BogDB · EF Core</div>
+            </div>
+        </div>
+        <ul class="nav-list">
+            <li><NavLink href="/" class="nav-item" Match="NavLinkMatch.All"><span class="nav-icon">🏠</span> Dashboard</NavLink></li>
+            <li><NavLink href="/compare" class="nav-item"><span class="nav-icon">🔄</span> Snapshot Compare</NavLink></li>
+            <li><NavLink href="/buckets" class="nav-item"><span class="nav-icon">📊</span> Year Buckets</NavLink></li>
+            <li><NavLink href="/neighborhood" class="nav-item"><span class="nav-icon">🕸️</span> Neighborhood</NavLink></li>
+            <li><NavLink href="/families" class="nav-item"><span class="nav-icon">🧬</span> Selection Families</NavLink></li>
+            <li><NavLink href="/query" class="nav-item"><span class="nav-icon">⌨️</span> Query Editor</NavLink></li>
+        </ul>
+        <div class="sidebar-footer">
+            <div class="sidebar-badge">EF Core → GraphShardLocalRuntime</div>
+        </div>
+    </nav>
+    <main class="main-content">
+        @Body
+    </main>
+</div>

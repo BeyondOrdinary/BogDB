@@ -1,0 +1,119 @@
+@page "/influence"
+@rendermode InteractiveServer
+@inject SocialGraphService Svc
+
+<PageTitle>Influence · SocialGraph</PageTitle>
+
+<div class="page-header">
+    <h1>⭐ Influence Leaderboard</h1>
+    <p>Structural influence ranked by <code>CALL pagerank('KNOWS')</code> — who matters most in the network beyond raw connection count?</p>
+</div>
+
+@if (_rows is null)
+{
+    <div class="loading"><div class="spinner"></div>Computing PageRank…</div>
+}
+else
+{
+    <div class="stat-grid">
+        <div class="stat-card">
+            <div class="stat-label">#1 Influence</div>
+            <div class="stat-value" style="font-size:16px">@_rows.FirstOrDefault()?.Name</div>
+            <div class="stat-sub">@_rows.FirstOrDefault()?.Title</div>
+        </div>
+        <div class="stat-card accent">
+            <div class="stat-label">Top PageRank</div>
+            <div class="stat-value">@_rows.FirstOrDefault()?.PageRank.ToString("F4")</div>
+            <div class="stat-sub">rank score</div>
+        </div>
+        <div class="stat-card pink">
+            <div class="stat-label">Most Connected</div>
+            <div class="stat-value" style="font-size:16px">@_rows.MaxBy(r => r.Degree)?.Name</div>
+            <div class="stat-sub">@_rows.MaxBy(r => r.Degree)?.Degree direct connections</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-title">Top 20 by Influence Score</div>
+
+        <!-- Visual rank bars -->
+        <div class="rank-bar-wrap" style="margin-bottom:20px">
+            @{ double maxPr = _rows.First().PageRank; }
+            @foreach (var row in _rows.Take(10))
+            {
+                var pct = maxPr > 0 ? (int)(row.PageRank / maxPr * 100) : 0;
+                <div class="rank-bar-row">
+                    <div class="rank-bar-label" title="@row.Name">@row.Name</div>
+                    <div class="rank-bar-track">
+                        <div class="rank-bar-fill" style="width:@pct%"></div>
+                    </div>
+                    <div class="rank-bar-val">@row.PageRank.ToString("F4")</div>
+                </div>
+            }
+        </div>
+
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Name</th>
+                    <th>Title</th>
+                    <th>Team</th>
+                    <th>Department</th>
+                    <th>PageRank</th>
+                    <th>Connections</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in _rows)
+                {
+                    <tr>
+                        <td style="font-family:var(--font-mono);color:var(--text-muted)">
+                            @(row.Rank == 1 ? "🥇" : row.Rank == 2 ? "🥈" : row.Rank == 3 ? "🥉" : row.Rank.ToString())
+                        </td>
+                        <td style="font-weight:600;color:var(--purple-300)">@row.Name</td>
+                        <td style="color:var(--text-secondary);font-size:12px">@row.Title</td>
+                        <td>
+                            <span class="badge" style="background:rgba(99,102,241,.18);color:#a5b4fc">
+                                @(_teamByPersonId.GetValueOrDefault(row.PersonId, ""))
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge badge-dept-@(row.Department.ToLower().Replace(" ",""))">
+                                @row.Department
+                            </span>
+                        </td>
+                        <td style="font-family:var(--font-mono);color:var(--cyan)">@row.PageRank.ToString("F4")</td>
+                        <td style="color:var(--text-secondary)">@row.Degree</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <div class="card-title">💡 Cypher used</div>
+        <pre style="font-family:var(--font-mono);font-size:12px;color:var(--purple-300);white-space:pre-wrap;margin:0">CALL pagerank('KNOWS') YIELD node, rank
+MATCH (p:Person {id: node})
+RETURN p.name AS name, p.title, p.department, rank
+ORDER BY rank DESC LIMIT 20</pre>
+        <p style="margin-top:10px;font-size:12px;color:var(--text-secondary)">
+            PageRank weighs not just the number of connections but the quality — a person
+            connected to highly-connected hubs scores higher than one with equal raw degree
+            but peripheral connections. A pure SQL degree query misses this entirely.
+        </p>
+    </div>
+}
+
+@code {
+    private List<InfluenceRow>? _rows;
+    private Dictionary<string, string> _teamByPersonId = new();
+
+    protected override void OnInitialized()
+    {
+        _rows = Svc.GetInfluenceLeaderboard();
+        // Build team lookup from all people
+        var top = Svc.GetTopConnectedPeople(200);
+        _teamByPersonId = top.ToDictionary(p => p.Id, p => p.Team);
+    }
+}

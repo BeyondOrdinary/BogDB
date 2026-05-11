@@ -1,0 +1,84 @@
+@page "/community"
+@rendermode InteractiveServer
+@inject SocialGraphService Svc
+@inject IJSRuntime JS
+
+<PageTitle>Community Map · SocialGraph</PageTitle>
+
+<div class="page-header">
+    <h1>🌐 Community Map</h1>
+    <p>Force-directed visualisation of the KNOWS graph — coloured by department. Each node is a person, each edge a social connection.</p>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+        <span style="font-size:12px;color:var(--text-muted)">Department colours:</span>
+        <span style="display:flex;align-items:center;gap:5px;font-size:12px">
+            <span style="width:10px;height:10px;border-radius:50%;background:#8b5cf6;display:inline-block"></span>Engineering
+        </span>
+        <span style="display:flex;align-items:center;gap:5px;font-size:12px">
+            <span style="width:10px;height:10px;border-radius:50%;background:#ec4899;display:inline-block"></span>Product
+        </span>
+        <span style="display:flex;align-items:center;gap:5px;font-size:12px">
+            <span style="width:10px;height:10px;border-radius:50%;background:#22d3ee;display:inline-block"></span>Operations
+        </span>
+        <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">
+            Showing first 80 people · 200 edges · drag to pan
+        </span>
+    </div>
+    <canvas id="community-canvas"></canvas>
+</div>
+
+<div class="card">
+    <div class="card-title">📊 Network Composition</div>
+    @if (_graphData is not null)
+    {
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+            <div class="stat-card" style="margin:0">
+                <div class="stat-label">Nodes (shown)</div>
+                <div class="stat-value" style="font-size:22px">@_graphData.Nodes.Count</div>
+            </div>
+            <div class="stat-card accent" style="margin:0">
+                <div class="stat-label">Edges (shown)</div>
+                <div class="stat-value" style="font-size:22px">@_graphData.Edges.Count</div>
+            </div>
+            <div class="stat-card indigo" style="margin:0">
+                <div class="stat-label">Groups</div>
+                <div class="stat-value" style="font-size:22px">3</div>
+            </div>
+        </div>
+    }
+    <p style="margin-top:14px;font-size:12px;color:var(--text-secondary)">
+        This canvas simulation uses a basic spring layout driven by KNOWS edge strength.
+        Nodes pulled together by high-strength edges cluster visually — matching the graph topology
+        discovered by <code>CALL wcc() YIELD *</code> in BogDB.
+    </p>
+</div>
+
+@code {
+    private GraphData? _graphData;
+
+    protected override void OnInitialized() =>
+        _graphData = Svc.GetGraphData();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _graphData is null) return;
+
+        var nodeData = _graphData.Nodes.Select(n => new
+        {
+            id    = n.Id,
+            name  = n.Name,
+            group = n.Group
+        }).ToList();
+
+        var edgeData = _graphData.Edges.Select(e => new
+        {
+            from     = e.From,
+            to       = e.To,
+            strength = e.Strength
+        }).ToList();
+
+        await JS.InvokeVoidAsync("drawForceGraph", "community-canvas", nodeData, edgeData);
+    }
+}

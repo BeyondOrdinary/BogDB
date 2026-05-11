@@ -13,7 +13,12 @@
   <Project Path="BogDb.Mcp.Codegen.Server/BogDb.Mcp.Codegen.Server.csproj" />
   <Project Path="BogDb.Mcp.Server/BogDb.Mcp.Server.csproj" />
   <Project Path="BogDb.Samples.FraudGraph.Console/BogDb.Samples.FraudGraph.Console.csproj" />
+  <Project Path="BogDb.Samples.LLMBenchmarks/BogDb.Samples.LLMBenchmarks.csproj" />
   <Project Path="BogDb.Samples.LLMBenchmarks.Blazor/BogDb.Samples.LLMBenchmarks.Blazor.csproj" />
+  <Project Path="BogDb.Samples.MonsterManual.Blazor/BogDb.Samples.MonsterManual.Blazor.csproj" />
+  <Project Path="BogDb.Samples.NutriGraph.Blazor/BogDb.Samples.NutriGraph.Blazor.csproj" />
+  <Project Path="BogDb.Samples.PackageEcosystem.Blazor/BogDb.Samples.PackageEcosystem.Blazor.csproj" />
+  <Project Path="BogDb.Samples.SocialGraph.Blazor/BogDb.Samples.SocialGraph.Blazor.csproj" />
   <Project Path="BogDb.Samples.SqlToCypher.Blazor/BogDb.Samples.SqlToCypher.Blazor.csproj" />
   <Project Path="BogDb.Samples.TacticalMessaging.Blazor/BogDb.Samples.TacticalMessaging.Blazor.csproj" />
   <Project Path="BogDb.Tests.ProcessHost/BogDb.Tests.ProcessHost.csproj" />

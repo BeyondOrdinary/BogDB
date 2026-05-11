@@ -1,0 +1,112 @@
+@page "/families"
+@rendermode InteractiveServer
+@inject PackageEcosystemGraphService Graph
+
+<PageTitle>Selection Families — PackageEcosystem</PageTitle>
+
+<div class="page-header">
+    <h1>Selection Families</h1>
+    <p class="page-sub">Uses <code>BuildMultiGroupChangeReviewSelectionFamilies</code> and <code>BuildMultiGroupChangeReviewConsensus</code> to group snapshots by their selection shape and find what is common across all.</p>
+</div>
+
+@if (!_loaded)
+{
+    <div class="loading">Computing selection families across all snapshots...</div>
+}
+else
+{
+    <div class="callout api-callout">
+        <strong>APIs called:</strong><br/>
+        <code>runtime.BuildMultiGroupChangeReview(baseShard, nodeTables: ["Package","Release"], relTypes: ["DEPENDS_ON","AFFECTS"])</code> ← per snapshot<br/>
+        <code>runtime.BuildMultiGroupChangeReviewSelectionFamilies(reviews)</code><br/>
+        <code>runtime.BuildMultiGroupChangeReviewConsensus(reviews)</code>
+    </div>
+
+    <div class="card">
+        <h2>Consensus Across All Snapshots</h2>
+        <div class="callout">
+            <strong>CommonSummary:</strong> <code>@_consensusLabel</code>
+            <p>The consensus is what is <em>universally</em> present in every scope's composed projection — using strict all-scope intersection, not a threshold.</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Selection Families</h2>
+        <p class="dim">Each family groups snapshots that made the same selection shape (identical node-table and rel-type key sets). The <em>Signature</em> is an opaque normalized key derived from the sorted selected keys.</p>
+
+        @if (!_families.Any())
+        {
+            <p class="dim">No family data available. Need at least 2 snapshots.</p>
+        }
+        else
+        {
+        <div class="family-grid">
+        @foreach (var family in _families)
+        {
+            <div class="family-card">
+                <div class="family-header">
+                    <span class="badge badge-purple">@family.ScopeCount scope@(family.ScopeCount != 1 ? "s" : "")</span>
+                    <span class="family-sig" title="@family.Signature">Signature: @(family.Signature.Length > 40 ? family.Signature[..40] + "…" : family.Signature)</span>
+                </div>
+                <div class="family-scopes">
+                    <strong>Scopes:</strong>
+                    @foreach (var key in family.ScopeKeys)
+                    {
+                        <span class="badge badge-blue">@key</span>
+                    }
+                </div>
+                <div class="family-sel">
+                    <strong>Selected node tables:</strong>
+                    @foreach (var nt in family.SelectedNodeTables)
+                    {
+                        <span class="badge badge-teal">@nt</span>
+                    }
+                </div>
+                @if (family.SelectedRelTypes.Any())
+                {
+                    <div class="family-sel">
+                        <strong>Selected rel types:</strong>
+                        @foreach (var rt in family.SelectedRelTypes)
+                        {
+                            <span class="badge badge-amber">@rt</span>
+                        }
+                    </div>
+                }
+            </div>
+        }
+        </div>
+        }
+    </div>
+
+    <div class="card">
+        <h2>Why This Is Powerful</h2>
+        <div class="callout">
+            <p>Selection families answer: <em>"which review scopes are making identical selections?"</em></p>
+            <ul>
+                <li>A <strong>singleton family</strong> means that scope has a unique selection shape — nothing else matches it.</li>
+                <li>A <strong>shared family</strong> means multiple scopes independently arrived at the same graph focus.</li>
+                <li>The <strong>Signature</strong> is stable across runs — if two scopes select {Package, Release} with {DEPENDS_ON, AFFECTS}, they will always share a signature regardless of what data changed.</li>
+                <li>This makes family grouping useful for <em>configuration auditing</em>, not just data analytics.</li>
+            </ul>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loaded = false;
+    private List<SelectionFamilyRow> _families = [];
+    private string _consensusLabel = "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Task.Yield();
+            var (families, label) = Graph.GetSelectionFamilies();
+            _families      = families;
+            _consensusLabel = label;
+            _loaded = true;
+            StateHasChanged();
+        }
+    }
+}

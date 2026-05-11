@@ -1,0 +1,72 @@
+@page "/org-chart"
+@rendermode InteractiveServer
+@inject SocialGraphService Svc
+
+<PageTitle>Org Chart · SocialGraph</PageTitle>
+
+<div class="page-header">
+    <h1>🏢 Org Chart</h1>
+    <p>Hierarchical reporting tree from <code>REPORTS_TO*1..5</code> recursive traversal</p>
+</div>
+
+@if (_roots is null)
+{
+    <div class="loading"><div class="spinner"></div>Loading org structure…</div>
+}
+else if (_roots.Count == 0)
+{
+    <div class="alert alert-warn">No reporting relationships found in this graph subset.</div>
+}
+else
+{
+    <div style="display:flex;flex-direction:column;gap:20px">
+        @foreach (var root in _roots)
+        {
+            <div class="card" style="margin:0">
+                <div class="card-title">📋 @root.Department Team — led by @root.Name</div>
+                @RenderNode(root, 0)
+            </div>
+        }
+    </div>
+
+    <div class="card" style="margin-top:20px">
+        <div class="card-title">💡 Cypher used</div>
+        <pre style="font-family:var(--font-mono);font-size:12px;color:var(--purple-300);white-space:pre-wrap;margin:0">-- Find the full chain to the top for any employee
+MATCH path = (emp:Person {name: 'Alice Chen'})-[:REPORTS_TO*1..5]->(top:Person)
+WHERE NOT (top)-[:REPORTS_TO]->()
+RETURN [n IN nodes(path) | n.name + ' — ' + n.title] AS chain,
+       length(path) AS levels</pre>
+        <p style="margin-top:10px;font-size:12px;color:var(--text-secondary)">
+            Recursive tree traversal with <code>*1..N</code> finds multi-hop chains without
+            recursive CTEs. The path length is automatically available via <code>length(path)</code>.
+        </p>
+    </div>
+}
+
+@code {
+    private List<OrgNode>? _roots;
+
+    protected override void OnInitialized() =>
+        _roots = Svc.GetOrgChart();
+
+    private RenderFragment RenderNode(OrgNode node, int depth) => __builder =>
+    {
+        var indent = depth * 32;
+        <div style="@($"margin-left:{indent}px;margin-top:8px;display:flex;gap:8px;align-items:flex-start")">
+            @if (depth > 0)
+            {
+                <div style="width:1px;background:var(--border);margin-right:4px;align-self:stretch"></div>
+                <span style="color:var(--text-muted);font-size:14px;margin-top:4px">└</span>
+            }
+            <div class="org-node">
+                <div class="org-node-name">@node.Name</div>
+                <div class="org-node-title">@node.Title</div>
+                <div style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-top:2px">@node.Department</div>
+            </div>
+        </div>
+        @foreach (var child in node.Reports.Take(5))
+        {
+            @RenderNode(child, depth + 1)
+        }
+    };
+}

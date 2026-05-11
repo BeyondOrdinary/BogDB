@@ -1,0 +1,99 @@
+@page "/query"
+@rendermode InteractiveServer
+@inject PackageEcosystemGraphService Graph
+
+<PageTitle>Query Editor — PackageEcosystem</PageTitle>
+
+<div class="page-header">
+    <h1>Cypher Query Editor</h1>
+    <p class="page-sub">Live query against the BogDB in-memory graph — seeded from EF Core SQLite via <code>UpsertNodeById</code> / <code>UpsertRelationshipById</code>.</p>
+</div>
+
+<div class="card">
+    <h2>Quick-load queries</h2>
+    <div class="tag-strip">
+    @foreach (var q in PackageEcosystemGraphService.ShowcaseQueries)
+    {
+        <button class="tag-btn" @onclick="() => Load(q)">@q.Title</button>
+    }
+    </div>
+</div>
+
+<div class="card">
+    <textarea class="cypher-editor" @bind="_cypher" rows="6" placeholder="Enter Cypher query..."></textarea>
+    <div class="editor-footer">
+        <button class="btn-primary" @onclick="Run">▶ Run Query</button>
+        @if (_response is not null)
+        {
+            <span class="elapsed">@_response.ElapsedMs ms</span>
+        }
+    </div>
+</div>
+
+@if (_response is not null)
+{
+    @if (!_response.IsSuccess)
+    {
+        <div class="error-card">@_response.Error</div>
+    }
+    else if (_response.Rows.Count == 0)
+    {
+        <div class="callout">Query returned 0 rows.</div>
+    }
+    else
+    {
+        <div class="card">
+            <h2>Results <span class="dim">(@Math.Min(_response.Rows.Count, 200) of @_response.Rows.Count rows)</span></h2>
+            <div class="table-scroll">
+                <table class="data-table">
+                    <thead>
+                        <tr>@foreach (var col in _response.Columns) { <th>@col</th> }</tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var row in _response.Rows.Take(200))
+                    {
+                        <tr>
+                        @foreach (var col in _response.Columns)
+                        {
+                            var val = row.GetValueOrDefault(col);
+                            <td>@(val?.ToString() ?? "(null)")</td>
+                        }
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+}
+
+<div class="card">
+    <h2>Schema Reference</h2>
+    <pre class="cypher-block">// Node tables
+(Package   {name, ecosystem, author, description, ext_id})
+(Release   {package_name, package_ext_id, version, ecosystem, release_year, downloads, is_yanked, snapshot_label})
+(Vulnerability {cve_id, title, severity, cvss_score})
+
+// Relationship tables
+(Release)-[:DEPENDS_ON {dep_type}]->(Release)
+(Vulnerability)-[:AFFECTS]->(Release)
+(Package)-[:HAS_RELEASE]->(Release)</pre>
+</div>
+
+@code {
+    private string _cypher =
+        "MATCH (r:Release)\n" +
+        "WHERE r.snapshot_label = 'Q4-2024'\n" +
+        "RETURN r.package_name, r.version, r.downloads\n" +
+        "ORDER BY r.downloads DESC\n" +
+        "LIMIT 15";
+
+    private QueryResponse? _response;
+
+    private void Load(ShowcaseQuery q) => _cypher = q.Cypher;
+
+    private void Run()
+    {
+        _response = Graph.Execute(_cypher);
+    }
+}

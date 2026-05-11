@@ -1,0 +1,115 @@
+@page "/"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject BogDb.Samples.MonsterManual.Blazor.Services.MonsterGraphService Svc
+
+<PageTitle>Dashboard · BogDb Monster Manual</PageTitle>
+
+@if (!_initialized)
+{
+    <div class="page-header">
+        <div class="skeleton-line" style="width:180px"></div>
+        <div class="skeleton-line" style="width:420px;height:12px"></div>
+    </div>
+    <div class="skeleton-block"></div>
+}
+else
+{
+<div class="page-header">
+    <h1 class="page-title">🗺️ Campaign Dashboard</h1>
+    <p class="page-subtitle">Build the database to populate your in-memory BogDb instance from the theoperatore/dnd-monster-api repository.</p>
+</div>
+
+@if (_isBuilding)
+{
+    <div class="card" style="border-left:4px solid var(--gold)">
+        <h2 class="card-title" style="margin-bottom:8px">Conjuring Database...</h2>
+        <div style="font-size:14px;color:var(--text-muted);margin-bottom:16px">
+            Ingesting Bestiary: @_processed / @_total monsters from GitHub.
+        </div>
+        <div style="width:100%;height:8px;background:#eedfc8;border-radius:4px;overflow:hidden">
+            <div style="height:100%;background:var(--red-primary);width:@(_total > 0 ? (_processed * 100 / _total) : 0)%;transition:width 0.2s"></div>
+        </div>
+    </div>
+}
+else if (!_hasData)
+{
+    <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:24px;padding:20px 24px">
+        <div>
+            <div style="font-family:var(--font-serif);font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:4px">Database is Empty</div>
+            <div style="font-size:12px;color:var(--text-muted)">Pull the bestiary from <code>theoperatore/dnd-monster-api</code> to build the graph.</div>
+        </div>
+        <button class="btn btn-primary" style="font-size:14px;padding:10px 20px;white-space:nowrap" @onclick="BuildDatabase">
+            ✨ Build Database
+        </button>
+    </div>
+}
+else
+{
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:24px;margin-bottom:32px">
+        <div class="stat-box">
+            <div class="stat-value">@_mCount</div>
+            <div class="stat-label">Monsters (Nodes)</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-value">@_dCount</div>
+            <div class="stat-label">Dungeons (Nodes)</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-value">@_cCount</div>
+            <div class="stat-label">Deployments (Edges)</div>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h3 class="card-title">Attribution</h3>
+        <p style="font-size:13px;line-height:1.6">
+            Data and images are pulled dynamically from the open source repository: <br/>
+            <a href="https://github.com/theoperatore/dnd-monster-api" target="_blank" style="color:var(--red-primary);font-weight:600">github.com/theoperatore/dnd-monster-api</a>
+        </p>
+    </div>
+}
+
+} @* end @if (!_initialized) else *@
+
+@code {
+    private bool _initialized = false;
+    private bool _isBuilding = false;
+    private bool _hasData = false;
+    private int _processed = 0;
+    private int _total = 0;
+    
+    private int _mCount;
+    private int _dCount;
+    private int _cCount;
+    
+    protected override void OnInitialized()
+    {
+        RefreshStats();
+        _initialized = true;
+    }
+    
+    private void RefreshStats()
+    {
+        var (m, d, c) = Svc.GetStats();
+        _mCount = m;
+        _dCount = d;
+        _cCount = c;
+        _hasData = _mCount > 0;
+    }
+    
+    private async Task BuildDatabase()
+    {
+        _isBuilding = true;
+        _processed = 0; _total = 0;
+        StateHasChanged();
+        
+        await Svc.BuildDatabaseAsync((p, t) => {
+            _processed = p;
+            _total = t;
+            InvokeAsync(StateHasChanged);
+        });
+        
+        _isBuilding = false;
+        RefreshStats();
+    }
+}

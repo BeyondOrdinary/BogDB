@@ -1,0 +1,105 @@
+@page "/buckets"
+@rendermode InteractiveServer
+@inject PackageEcosystemGraphService Graph
+
+<PageTitle>Year Buckets — PackageEcosystem</PageTitle>
+
+<div class="page-header">
+    <h1>Release Year Distribution</h1>
+    <p class="page-sub">Uses <code>HistogramNodesForTable("Release", "release_year", bucketSize: 1)</code> — scoped numeric histogram from <code>GraphShardLocalRuntime</code>.</p>
+</div>
+
+<div class="card">
+    <div class="control-row">
+        <label>Snapshot:</label>
+        <select @bind="_snapshotLabel" class="select-input">
+            @foreach (var s in _snapshots)
+            {
+                <option value="@s.Label">@s.Label</option>
+            }
+        </select>
+        <button class="btn-primary" @onclick="Reload">Compute HistogramNodesForTable</button>
+    </div>
+</div>
+
+@if (_buckets.Any())
+{
+    <div class="callout api-callout">
+        <strong>API called:</strong>
+        <code>runtime.HistogramNodesForTable("Release", "release_year", bucketSize: 1)</code><br/>
+        <strong>Total releases bucketed:</strong> @_buckets.Sum(b => b.Count)
+    </div>
+
+    <div class="card">
+        <h2>Releases by Publication Year</h2>
+        <canvas id="yearBucketChart" height="72"></canvas>
+    </div>
+
+    <div class="card">
+        <h2>Raw Bucket Data</h2>
+        <table class="data-table">
+            <thead><tr><th>Year</th><th>Release Count</th><th>Share</th></tr></thead>
+            <tbody>
+            @{
+                var total = _buckets.Sum(b => b.Count);
+            }
+            @foreach (var bucket in _buckets.OrderBy(b => b.BucketLabel))
+            {
+                var share = total > 0 ? (100.0 * bucket.Count / total) : 0;
+                <tr>
+                    <td>@bucket.BucketLabel</td>
+                    <td>@bucket.Count</td>
+                    <td>
+                        <div class="inline-bar-track">
+                            <div class="inline-bar-fill" style="width:@share.ToString("F0")%"></div>
+                        </div>
+                        @share.ToString("F1")%
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<SnapshotSummary> _snapshots = [];
+    private string _snapshotLabel = "Q4-2024";
+    private List<TimeBucketRow> _buckets = [];
+
+    [Inject] private IJSRuntime JS { get; set; } = null!;
+
+    protected override void OnInitialized()
+    {
+        _snapshots    = Graph.GetSnapshots();
+        _snapshotLabel = _snapshots.LastOrDefault()?.Label ?? "Q4-2024";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            Reload();
+            await RenderChart();
+        }
+    }
+
+    private void Reload()
+    {
+        _buckets = Graph.GetTimeBuckets(_snapshotLabel);
+        InvokeAsync(RenderChart);
+    }
+
+    private async Task RenderChart()
+    {
+        if (!_buckets.Any()) return;
+        var labels = _buckets.OrderBy(b => b.BucketLabel).Select(b => b.BucketLabel).ToArray();
+        var values = _buckets.OrderBy(b => b.BucketLabel).Select(b => (double)b.Count).ToArray();
+        try
+        {
+            await JS.InvokeVoidAsync("renderBarChart", "yearBucketChart", labels, values,
+                "Releases by Year", "#818cf8");
+        }
+        catch { /* JS not ready yet */ }
+    }
+}

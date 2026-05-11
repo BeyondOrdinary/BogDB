@@ -1,0 +1,50 @@
+@inherits LayoutComponentBase
+
+<div class="app-shell">
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <a class="sidebar-logo" href="/">
+                <div class="sidebar-logo-icon">🕸</div>
+                <div>
+                    <div class="sidebar-logo-title">SocialGraph</div>
+                    <div class="sidebar-logo-sub">BogDB · Network Explorer</div>
+                </div>
+            </a>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-section-label">Network Intelligence</div>
+            <NavLink class="nav-link" href="/" Match="NavLinkMatch.All">
+                <span class="nav-link-icon">⬡</span>Dashboard
+            </NavLink>
+            <NavLink class="nav-link" href="/six-degrees">
+                <span class="nav-link-icon">🔗</span>Six Degrees
+            </NavLink>
+            <NavLink class="nav-link" href="/community">
+                <span class="nav-link-icon">🌐</span>Community Map
+            </NavLink>
+            <NavLink class="nav-link" href="/influence">
+                <span class="nav-link-icon">⭐</span>Influence
+            </NavLink>
+            <NavLink class="nav-link" href="/org-chart">
+                <span class="nav-link-icon">🏢</span>Org Chart
+            </NavLink>
+
+            <div class="nav-section-label" style="margin-top:16px">Graph Engine</div>
+            <NavLink class="nav-link" href="/query">
+                <span class="nav-link-icon">⌨</span>Cypher Editor
+            </NavLink>
+            <NavLink class="nav-link" href="/library">
+                <span class="nav-link-icon">📚</span>Query Library
+            </NavLink>
+        </nav>
+
+        <div class="sidebar-footer">
+            BogDB · Social Sample · .NET 9
+        </div>
+    </aside>
+
+    <main class="main-content">
+        @Body
+    </main>
+</div>

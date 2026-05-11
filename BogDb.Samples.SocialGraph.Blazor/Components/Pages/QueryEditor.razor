@@ -1,0 +1,111 @@
+@page "/query"
+@rendermode InteractiveServer
+@inject SocialGraphService Svc
+
+<PageTitle>Cypher Editor · SocialGraph</PageTitle>
+
+<div class="page-header">
+    <h1>⌨️ Cypher Editor</h1>
+    <p>Run any Cypher query against the live social graph</p>
+</div>
+
+<div class="card">
+    <div class="form-row" style="align-items:flex-start">
+        <div class="form-group" style="flex:1">
+            <label>Cypher Query</label>
+            <textarea id="cypher-input" class="cypher-editor" @bind="_cypher"></textarea>
+        </div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center">
+        <button id="btn-run" class="btn btn-primary" @onclick="RunQuery">▶ Run Query</button>
+        <button class="btn btn-ghost" @onclick="ClearQuery">Clear</button>
+        @if (_response is not null)
+        {
+            <span style="font-size:12px;color:var(--text-muted)">
+                @_response.Rows.Count row@(_response.Rows.Count == 1 ? "" : "s") · @_response.ElapsedMs ms
+            </span>
+        }
+    </div>
+
+    @if (_loading)
+    {
+        <div class="loading" style="margin-top:12px"><div class="spinner"></div>Executing…</div>
+    }
+    else if (_response is not null)
+    {
+        if (!_response.IsSuccess)
+        {
+            <div class="alert alert-warn" style="margin-top:12px">@_response.Error</div>
+        }
+        else if (_response.Rows.Count == 0)
+        {
+            <div class="alert alert-info" style="margin-top:12px">No rows returned.</div>
+        }
+        else
+        {
+            <div class="results-table-wrap" style="margin-top:14px">
+                <table class="data-table">
+                    <thead>
+                        <tr>@foreach (var col in _response.Columns) { <th>@col</th> }</tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in _response.Rows.Take(200))
+                        {
+                            <tr>
+                                @foreach (var col in _response.Columns)
+                                {
+                                    <td>@(row.TryGetValue(col, out var v) ? v?.ToString() ?? "null" : "")</td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>
+
+<div class="card">
+    <div class="card-title">📌 Quick-start queries</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+        @foreach (var (label, cypher) in _quickStart)
+        {
+            <div style="display:flex;align-items:flex-start;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)">
+                <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;white-space:nowrap"
+                        @onclick="() => LoadQuery(cypher)">Load</button>
+                <div>
+                    <div style="font-weight:600;color:var(--purple-300);font-size:13px">@label</div>
+                    <pre style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);white-space:pre-wrap;margin:4px 0 0">@cypher</pre>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private string _cypher = "MATCH (p:Person) RETURN p.name AS name, p.title AS title, p.department AS dept ORDER BY p.name LIMIT 20";
+    private SocialQueryResponse? _response;
+    private bool _loading;
+
+    private readonly (string Label, string Cypher)[] _quickStart =
+    [
+        ("All people (first 20)", "MATCH (p:Person) RETURN p.name AS name, p.title AS title, p.department AS dept ORDER BY p.name LIMIT 20"),
+        ("Most connected people", "MATCH (p:Person)-[:KNOWS]-() WITH p, COUNT(*) AS deg RETURN p.name AS name, deg ORDER BY deg DESC LIMIT 15"),
+        ("Cross-team bridges", "MATCH (a:Person)-[:KNOWS]-(b:Person) WHERE a.team <> b.team WITH a, COUNT(DISTINCT b.team) AS teams WHERE teams >= 3 RETURN a.name, a.team, teams ORDER BY teams DESC"),
+        ("Shortest path: first two people", "MATCH (a:Person), (b:Person) WHERE a.id < b.id WITH a, b LIMIT 1 MATCH path = shortestPath((a)-[:KNOWS*]-(b)) RETURN a.name, b.name, length(path) AS hops"),
+        ("Reporting relationships", "MATCH (a:Person)-[:REPORTS_TO]->(b:Person) RETURN a.name AS reports, b.name AS manager, a.team AS team ORDER BY manager, reports LIMIT 30"),
+    ];
+
+    private async Task RunQuery()
+    {
+        if (string.IsNullOrWhiteSpace(_cypher)) return;
+        _loading = true;
+        StateHasChanged();
+        await Task.Yield();
+        _response = Svc.Execute(_cypher);
+        _loading = false;
+    }
+
+    private void LoadQuery(string cypher) => _cypher = cypher;
+    private void ClearQuery() { _cypher = ""; _response = null; }
+}

@@ -1,0 +1,163 @@
+@page "/library"
+@rendermode InteractiveServer
+@inject SocialGraphService Svc
+
+<PageTitle>Query Library · SocialGraph</PageTitle>
+
+<div class="page-header">
+    <h1>📚 Query Library</h1>
+    <p>10 curated Cypher queries showcasing graph-native social network analysis</p>
+</div>
+
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px">
+    @foreach (var tag in _tags)
+    {
+        var active = _tagFilter == tag;
+        <button class="btn @(active ? "btn-primary" : "btn-ghost")" style="padding:5px 14px;font-size:12px"
+                @onclick="() => _tagFilter = active ? null : tag">@tag</button>
+    }
+</div>
+
+<div style="display:flex;flex-direction:column;gap:14px">
+    @foreach (var q in FilteredQueries)
+    {
+        var isOpen = _expanded == q.Title;
+        <div class="card" style="margin:0">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;cursor:pointer"
+                 @onclick="() => Toggle(q.Title)">
+                <div>
+                    <div class="card-title" style="margin:0;font-size:14px">@q.Title</div>
+                    <div style="font-size:12px;color:var(--text-muted);margin-top:3px">@q.Description</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:16px">
+                    <span class="badge badge-dept-@TagDept(q.Tag)" style="font-size:9px">@q.Tag</span>
+                    <span style="color:var(--text-muted)">@(isOpen ? "▲" : "▼")</span>
+                </div>
+            </div>
+
+            @if (isOpen)
+            {
+                <pre style="margin-top:14px;background:var(--bg-raised);border:1px solid var(--border);border-radius:6px;padding:14px;font-family:var(--font-mono);font-size:12px;color:var(--purple-300);white-space:pre-wrap;overflow-x:auto">@q.Cypher</pre>
+
+                <div style="display:flex;gap:8px;margin-top:12px">
+                    <button class="btn btn-primary" style="font-size:12px" @onclick="() => RunQuery(q.Cypher)">▶ Run</button>
+                </div>
+
+                @if (_responseTag == q.Title)
+                {
+                    @if (_loading)
+                    {
+                        <div class="loading" style="margin-top:10px"><div class="spinner"></div>Running…</div>
+                    }
+                    else if (_responseData is not null)
+                    {
+                        var resp = _responseData;
+                        if (!resp.IsSuccess)
+                        {
+                            <div class="alert alert-warn" style="margin-top:10px">@resp.Error</div>
+                        }
+                        else if (resp.Rows.Count == 0)
+                        {
+                            <div class="alert alert-info" style="margin-top:10px">No rows returned.</div>
+                        }
+                        else
+                        {
+                            <p style="font-size:11px;color:var(--text-muted);margin:10px 0 6px">
+                                @resp.Rows.Count row@(resp.Rows.Count == 1 ? "" : "s") · @resp.ElapsedMs ms
+                            </p>
+                            <div class="results-table-wrap">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>@foreach (var c in resp.Columns) { <th>@c</th> }</tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var row in resp.Rows.Take(30))
+                                        {
+                                            <tr>
+                                                @foreach (var c in resp.Columns)
+                                                {
+                                                    var raw = row.TryGetValue(c, out var v) ? v : null;
+                                                    var txt = raw?.ToString() ?? "null";
+                                                    var lc  = c.ToLowerInvariant();
+                                                    if (lc is "name" or "person" or "bridge" or "from_eng" or "to_ops" or "mutual_friend" or "close_contact")
+                                                    {
+                                                        <td style="font-weight:600;color:var(--purple-300)">@txt</td>
+                                                    }
+                                                    else if (lc is "dept" or "department" or "own_dept" or "connected_depts")
+                                                    {
+                                                        <td><span class="badge badge-dept-@(txt.ToLower().Replace(" ",""))">@txt</span></td>
+                                                    }
+                                                    else if (lc is "team" or "team1" or "team2")
+                                                    {
+                                                        <td><span class="badge badge-team">@txt</span></td>
+                                                    }
+                                                    else if (lc is "title" or "intro_chain" or "chain")
+                                                    {
+                                                        <td style="font-size:12px;color:var(--text-secondary)">@txt</td>
+                                                    }
+                                                    else if (lc is "hops" or "connections" or "dept_reach" or "path_len" or "size" or "cross_edges" or "levels")
+                                                    {
+                                                        <td style="font-family:var(--font-mono);color:var(--cyan);text-align:right">@txt</td>
+                                                    }
+                                                    else if (lc is "strength" or "rank" or "score")
+                                                    {
+                                                        <td style="font-family:var(--font-mono);color:var(--amber);text-align:right">
+                                                            @(double.TryParse(txt, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d.ToString("F4") : txt)
+                                                        </td>
+                                                    }
+                                                    else
+                                                    {
+                                                        <td style="font-size:12px;color:var(--text-secondary)">@txt</td>
+                                                    }
+                                                }
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    }
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<ShowcaseQuery> _queries = [];
+    private string? _tagFilter;
+    private string? _expanded;
+    private bool _loading;
+    private string? _responseTag;
+    private SocialQueryResponse? _responseData;
+
+    private IEnumerable<string> _tags => _queries.Select(q => q.Tag).Distinct().OrderBy(t => t);
+    private IEnumerable<ShowcaseQuery> FilteredQueries =>
+        _tagFilter is null ? _queries : _queries.Where(q => q.Tag == _tagFilter);
+
+    protected override void OnInitialized() =>
+        _queries = SocialGraphService.GetShowcaseQueries();
+
+    private void Toggle(string title) =>
+        _expanded = _expanded == title ? null : title;
+
+    private async Task RunQuery(string cypher)
+    {
+        _loading = true;
+        StateHasChanged();
+        await Task.Yield();
+        _responseTag  = _expanded;
+        _responseData = Svc.Execute(cypher);
+        _loading = false;
+    }
+
+    private static string TagDept(string tag) => tag switch
+    {
+        "algorithm"  => "engineering",
+        "path"       => "operations",
+        "traversal"  => "engineering",
+        "aggregation"=> "product",
+        "filter"     => "product",
+        _            => "engineering"
+    };
+}

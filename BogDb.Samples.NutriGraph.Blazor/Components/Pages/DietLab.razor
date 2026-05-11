@@ -1,0 +1,255 @@
+@page "/diet-lab"
+@rendermode InteractiveServer
+@inject BogDb.Samples.NutriGraph.Blazor.Services.NutriGraphService Svc
+@inject NavigationManager Nav
+
+<PageTitle>Dietary Lab · NutriGraph</PageTitle>
+
+<div class="page-header">
+    <div class="page-title">Dietary Lab</div>
+    <div class="page-subtitle">Combine 7 nutrient thresholds with allergen and diet label filters — translated into a single Cypher graph traversal</div>
+</div>
+
+<div class="page-body">
+
+    <div style="display:grid;grid-template-columns:320px 1fr;gap:24px;align-items:start">
+
+        <!-- ── Filter sidebar ─────────── -->
+        <div class="card" style="margin:0">
+            <div class="card-title" style="margin-bottom:16px">🧪 Clinical Filters</div>
+
+            <!-- Allergen exclusions -->
+            <div style="margin-bottom:16px">
+                <label style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px">
+                    Exclude Allergens (FREE_FROM)
+                </label>
+                @foreach (var alg in new[] { "Dairy", "Egg", "Gluten", "Peanut", "Soy", "Shellfish", "Seafood", "Tree Nut", "Wheat", "Sesame" })
+                {
+                    <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--text-primary);cursor:pointer;margin:0 6px 6px 0;
+                                  padding:3px 8px;border-radius:100px;border:1px solid var(--border);
+                                  background:@(_selectedAllergens.Contains(alg) ? "rgba(244,63,94,0.15)" : "transparent")">
+                        <input type="checkbox" checked="@_selectedAllergens.Contains(alg)"
+                               @onchange="_ => ToggleAllergen(alg)" style="accent-color:var(--red)" /> @alg
+                    </label>
+                }
+            </div>
+
+            <!-- Diet labels -->
+            <div style="margin-bottom:16px">
+                <label style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px">
+                    Diet Labels (TAGGED)
+                </label>
+                @foreach (var d in new[] { "vegan", "vegetarian", "gluten free", "dairy free", "paleo", "ketogenic", "whole30" })
+                {
+                    <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--text-primary);cursor:pointer;margin:0 6px 6px 0;
+                                  padding:3px 8px;border-radius:100px;border:1px solid var(--border);
+                                  background:@(_selectedDiets.Contains(d) ? "rgba(14,165,233,0.15)" : "transparent")">
+                        <input type="checkbox" checked="@_selectedDiets.Contains(d)"
+                               @onchange="_ => ToggleDiet(d)" style="accent-color:var(--blue)" /> @d
+                    </label>
+                }
+            </div>
+
+            <hr style="border:none;border-top:1px solid var(--border);margin-bottom:16px"/>
+
+            <!-- 7 Nutrient sliders -->
+            <div style="margin-bottom:14px">
+                <label style="font-size:12px;color:var(--text-secondary);display:flex;justify-content:space-between">
+                    <strong>Max Sodium (mg)</strong> <span style="color:var(--red)">@_maxSodium</span>
+                </label>
+                <input type="range" min="0" max="3000" step="50" @bind="_maxSodium" @bind:event="oninput" style="width:100%;margin-top:4px" />
+                <div style="font-size:10px;color:var(--text-muted);margin-top:2px">Hypertension safe: &lt; 1500 mg</div>
+            </div>
+
+            <div style="margin-bottom:14px">
+                <label style="font-size:12px;color:var(--text-secondary);display:flex;justify-content:space-between">
+                    <strong>Min Magnesium (mg)</strong> <span style="color:var(--teal-400)">@_minMagnesium</span>
+                </label>
+                <input type="range" min="0" max="500" step="10" @bind="_minMagnesium" @bind:event="oninput" style="width:100%;margin-top:4px" />
+                <div style="font-size:10px;color:var(--text-muted);margin-top:2px">RDA: 300–420 mg/day</div>
+            </div>
+
+            <div style="margin-bottom:14px">
+                <label style="font-size:12px;color:var(--text-secondary);display:flex;justify-content:space-between">
+                    <strong>Max Sugar (g)</strong> <span style="color:var(--amber)">@_maxSugar</span>
+                </label>
+                <input type="range" min="0" max="100" step="1" @bind="_maxSugar" @bind:event="oninput" style="width:100%;margin-top:4px" />
+                <div style="font-size:10px;color:var(--text-muted);margin-top:2px">AHA limit: &lt; 25g women, &lt; 36g men</div>
+            </div>
+
+            <div style="margin-bottom:14px">
+                <label style="font-size:12px;color:var(--text-secondary);display:flex;justify-content:space-between">
+                    <strong>Max Calories</strong> <span style="color:var(--red)">@_maxCals</span>
+                </label>
+                <input type="range" min="0" max="2000" step="50" @bind="_maxCals" @bind:event="oninput" style="width:100%;margin-top:4px" />
+            </div>
+
+            <div style="margin-bottom:14px">
+                <label style="font-size:12px;color:var(--text-secondary);display:flex;justify-content:space-between">
+                    <strong>Min Protein (g)</strong> <span style="color:var(--teal-400)">@_minProtein</span>
+                </label>
+                <input type="range" min="0" max="100" step="1" @bind="_minProtein" @bind:event="oninput" style="width:100%;margin-top:4px" />
+                <div style="font-size:10px;color:var(--text-muted);margin-top:2px">Muscle maintenance: &gt; 25g/meal</div>
+            </div>
+
+            <div style="margin-bottom:14px">
+                <label style="font-size:12px;color:var(--text-secondary);display:flex;justify-content:space-between">
+                    <strong>Min Vitamin D (mcg)</strong> <span style="color:var(--blue)">@_minVitD</span>
+                </label>
+                <input type="range" min="0" max="30" step="1" @bind="_minVitD" @bind:event="oninput" style="width:100%;margin-top:4px" />
+                <div style="font-size:10px;color:var(--text-muted);margin-top:2px">Bone health RDA: 15–20 mcg</div>
+            </div>
+
+            <div style="margin-bottom:14px">
+                <label style="font-size:12px;color:var(--text-secondary);display:flex;justify-content:space-between">
+                    <strong>Min Vitamin C (mg)</strong> <span style="color:var(--amber)">@_minVitC</span>
+                </label>
+                <input type="range" min="0" max="200" step="5" @bind="_minVitC" @bind:event="oninput" style="width:100%;margin-top:4px" />
+                <div style="font-size:10px;color:var(--text-muted);margin-top:2px">Immune support: &gt; 60 mg</div>
+            </div>
+
+            <button class="btn btn-primary" style="width:100%;margin-top:8px" @onclick="RunQuery">🧪 Filter Graph</button>
+        </div>
+
+        <!-- ── Results panel ─────────── -->
+        <div>
+            <!-- Generated Cypher -->
+            <div class="sc-learn-panel" style="padding:16px;margin-bottom:20px">
+                <h3 style="margin-bottom:12px">Generated Graph Traversal</h3>
+                <div class="sc-learn-code-block" style="background:var(--bg-base)">
+<pre style="margin:0;padding:12px;font-size:11px">@GeneratedCypher</pre>
+                </div>
+                <p style="font-size:12px;margin-top:12px;color:var(--text-muted)">
+                    Allergen and diet constraints become structural MATCH patterns; nutrient thresholds become WHERE predicates.
+                </p>
+            </div>
+
+            @if (_loading)
+            {
+                <div class="loading"><div class="spinner"></div> Traversing graph…</div>
+            }
+            else if (_results is not null)
+            {
+                <div class="card" style="margin:0">
+                    <div class="card-title">@_results.Count Recipes Match</div>
+                    @if (_results.Count == 0)
+                    {
+                        <div class="alert alert-info">No recipes match these thresholds. Adjust sliders or search for more recipes first.</div>
+                    }
+                    else
+                    {
+                        <div style="overflow-x:auto">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Title</th><th>Cal</th><th>Protein</th><th>Sodium</th>
+                                        <th>Mg</th><th>Sugar</th><th>Vit C</th><th>Vit D</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var r in _results)
+                                    {
+                                        <tr>
+                                            <td><strong>@r["title"]</strong></td>
+                                            <td>@Fmt(r["cals"])</td>
+                                            <td>@Fmt(r["protein"]) g</td>
+                                            <td>@Fmt(r["sodium"]) mg</td>
+                                            <td>@Fmt(r["mag"]) mg</td>
+                                            <td>@Fmt(r["sugar"]) g</td>
+                                            <td>@Fmt(r["vitc"]) mg</td>
+                                            <td>@Fmt(r["vitd"]) mcg</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private HashSet<string> _selectedAllergens = new();
+    private HashSet<string> _selectedDiets = new();
+
+    private int _maxSodium = 3000;
+    private int _minMagnesium = 0;
+    private int _maxSugar = 100;
+    private int _maxCals = 2000;
+    private int _minProtein = 0;
+    private int _minVitD = 0;
+    private int _minVitC = 0;
+
+    private bool _loading;
+    private List<Dictionary<string, object?>>? _results;
+
+    private void ToggleAllergen(string name)
+    {
+        if (!_selectedAllergens.Remove(name)) _selectedAllergens.Add(name);
+        StateHasChanged();
+    }
+
+    private void ToggleDiet(string name)
+    {
+        if (!_selectedDiets.Remove(name)) _selectedDiets.Add(name);
+        StateHasChanged();
+    }
+
+    private string GeneratedCypher
+    {
+        get
+        {
+            var lines = new List<string> { "MATCH (r:Recipe)" };
+
+            // Structural matches for allergens
+            foreach (var (alg, idx) in _selectedAllergens.Select((a, i) => (a, i)))
+                lines.Add($"MATCH (r)-[:FREE_FROM]->(a{idx}:Allergen {{name: '{alg}'}})");
+
+            // Structural matches for diet labels
+            foreach (var (diet, idx) in _selectedDiets.Select((d, i) => (d, i)))
+                lines.Add($"MATCH (r)-[:TAGGED]->(d{idx}:DietLabel {{name: '{diet}'}})");
+
+            // Nutrient WHERE clauses
+            var wheres = new List<string>();
+            if (_maxSodium < 3000) wheres.Add($"r.sodium_mg <= {_maxSodium}");
+            if (_minMagnesium > 0) wheres.Add($"r.magnesium_mg >= {_minMagnesium}");
+            if (_maxSugar < 100) wheres.Add($"r.sugar_g <= {_maxSugar}");
+            if (_maxCals < 2000) wheres.Add($"r.calories <= {_maxCals}");
+            if (_minProtein > 0) wheres.Add($"r.protein_g >= {_minProtein}");
+            if (_minVitD > 0) wheres.Add($"r.vitamin_d_mcg >= {_minVitD}");
+            if (_minVitC > 0) wheres.Add($"r.vitamin_c_mg >= {_minVitC}");
+
+            if (wheres.Count > 0)
+                lines.Add("WHERE " + string.Join(" AND ", wheres));
+
+            lines.Add("RETURN DISTINCT r.title AS title, r.calories AS cals,");
+            lines.Add("       r.protein_g AS protein, r.sodium_mg AS sodium,");
+            lines.Add("       r.magnesium_mg AS mag, r.sugar_g AS sugar,");
+            lines.Add("       r.vitamin_c_mg AS vitc, r.vitamin_d_mcg AS vitd");
+            lines.Add("ORDER BY r.calories ASC");
+
+            return string.Join("\n", lines);
+        }
+    }
+
+    protected override void OnInitialized() => RunQuery();
+
+    private void RunQuery()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        var res = Svc.Execute(GeneratedCypher);
+        _results = res.IsSuccess ? res.Rows : [];
+        _loading = false;
+    }
+
+    private static string Fmt(object? v)
+    {
+        if (v is null) return "0";
+        if (double.TryParse(v.ToString(), out var d)) return d.ToString("F1");
+        return v.ToString() ?? "0";
+    }
+}

@@ -1,0 +1,40 @@
+@page "/cypher"
+
+<PageTitle>Cypher Grimoire · BogDb</PageTitle>
+
+<div class="page-header">
+    <h1 class="page-title">📜 Cypher Grimoire</h1>
+    <p class="page-subtitle">Learn the incantations required to summon data from the BogDb graph engine.</p>
+</div>
+
+<div class="card">
+    <div class="card-title">1. Node Fetching with Attribute Constraints</div>
+    <p style="font-size:13px;line-height:1.6;color:var(--text-secondary);margin-bottom:16px;">
+        To search the Bestiary for creatures matching specific physical parameters, we define a variable <code>m</code> with the label <code>:Monster</code>. 
+        Then we use the <code>WHERE</code> clause to establish boundaries.
+    </p>
+
+    <div class="cyber-code">MATCH (m:Monster)
+WHERE m.str &gt;= 13 AND m.str &lt;= 17
+RETURN m.name, m.str</div>
+</div>
+
+<div class="card">
+    <div class="card-title">2. Edge Creation (Adding to Dungeons)</div>
+    <p style="font-size:13px;line-height:1.6;color:var(--text-secondary);margin-bottom:16px;">
+        Instead of using messy foreign keys, Graph databases allow us to bind nodes together using structural logic. Here, we match the Monster node and the Dungeon node, then physically draw a line between them using <code>CREATE</code>.
+    </p>
+
+    <div class="cyber-code">MATCH (m:Monster {id: 'goblin-boss'}), (d:Dungeon {id: 'dungeon-1'})
+CREATE (m)-[:IN_DUNGEON]->(d)</div>
+</div>
+
+<div class="card">
+    <div class="card-title">3. Aggregation Traversals (Calculating CR)</div>
+    <p style="font-size:13px;line-height:1.6;color:var(--text-secondary);margin-bottom:16px;">
+        We can find all monsters inside our specific dungeon and calculate their combined XP in a single hop.
+    </p>
+
+    <div class="cyber-code">MATCH (m:Monster)-[:IN_DUNGEON]->(d:Dungeon {id: 'dungeon-1'})
+RETURN SUM(m.xp) AS total_difficulty</div>
+</div>

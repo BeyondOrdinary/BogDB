@@ -1,0 +1,214 @@
+@page "/six-degrees"
+@rendermode InteractiveServer
+@inject SocialGraphService Svc
+
+<PageTitle>Six Degrees · SocialGraph</PageTitle>
+
+<div class="page-header">
+    <h1>🔗 Six Degrees of Separation</h1>
+    <p>Find the shortest chain of <code>KNOWS</code> introductions between any two people</p>
+</div>
+
+<div class="card">
+    <div class="form-row">
+        <div class="form-group">
+            <label>From Person</label>
+            <select @bind="_from" id="from-person">
+                <option value="">— select source —</option>
+                @foreach (var p in _people)
+                {
+                    <option value="@p">@p</option>
+                }
+            </select>
+        </div>
+        <div class="form-group">
+            <label>To Person</label>
+            <select @bind="_to" id="to-person">
+                <option value="">— select target —</option>
+                @foreach (var p in _people)
+                {
+                    <option value="@p">@p</option>
+                }
+            </select>
+        </div>
+        <button id="btn-find" class="btn btn-primary" @onclick="FindPath">Find Path</button>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="loading"><div class="spinner"></div>Running shortestPath…</div>
+    }
+    else if (_searched && _result is null)
+    {
+        <div class="alert alert-warn">
+            No path found between <strong>@_from</strong> and <strong>@_to</strong>.
+            They may be in disconnected components or both names must match exactly.
+        </div>
+    }
+    else if (_result is not null)
+    {
+        <div class="alert alert-ok" style="margin-bottom:16px">
+            Connected in <strong>@(_result.Nodes.Count - 1) hop@(_result.Nodes.Count == 2 ? "" : "s")</strong>
+            via undirected <code>shortestPath((a)-[:KNOWS*1..10]-(b))</code>
+        </div>
+
+        <div class="path-chain">
+            @for (int i = 0; i < _result.Nodes.Count; i++)
+            {
+                var n = _result.Nodes[i];
+                var isEnd = i == 0 || i == _result.Nodes.Count - 1;
+                <div class="path-node @(isEnd ? "path-node-end" : "")">
+                    <div class="path-node-dept">@n.Department</div>
+                    <div class="path-node-team">@n.Team</div>
+                    <div style="font-weight:600;margin:2px 0">@n.Name</div>
+                    <div style="font-size:10px;color:var(--text-muted)">@n.Title</div>
+                </div>
+                @if (i < _result.Nodes.Count - 1)
+                {
+                    <div class="path-arrow">⟷</div>
+                }
+            }
+        </div>
+
+        @* Path as node table *@
+        <table class="data-table" style="margin-top:16px">
+            <thead>
+                <tr>
+                    <th>Hop</th>
+                    <th>Name</th>
+                    <th>Title</th>
+                    <th>Team</th>
+                    <th>Department</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (int i = 0; i < _result.Nodes.Count; i++)
+                {
+                    var n = _result.Nodes[i];
+                    <tr>
+                        <td style="font-family:var(--font-mono);color:var(--text-muted);width:60px">
+                            @(i == 0 ? "Start" : i == _result.Nodes.Count - 1 ? "End" : $"+ {i}")
+                        </td>
+                        <td style="font-weight:600;color:var(--purple-300)">@n.Name</td>
+                        <td style="color:var(--text-secondary);font-size:12px">@n.Title</td>
+                        <td><span class="badge badge-team">@n.Team</span></td>
+                        <td><span class="badge badge-dept-@(n.Department.ToLower().Replace(" ",""))">@n.Department</span></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <div class="card" style="margin-top:16px;background:var(--bg-raised)">
+            <div class="card-title" style="font-size:11px;margin-bottom:8px">Cypher used</div>
+            <pre style="font-family:var(--font-mono);font-size:12px;color:var(--purple-300);white-space:pre-wrap;margin:0">MATCH path = shortestPath(
+  (a:Person {name: '@_from'})-[:KNOWS*1..10]-(b:Person {name: '@_to'})
+)
+UNWIND nodes(path) AS n
+RETURN n.id, n.name, n.title, n.team, n.department</pre>
+        </div>
+    }
+</div>
+
+@* ── Mutual connections ──────────────────────────────────────────── *@
+@if (!string.IsNullOrEmpty(_from) && !string.IsNullOrEmpty(_to) && _from != _to && _mutuals is not null)
+{
+    <div class="card">
+        <div class="card-title">🤝 Mutual Connections between @_from and @_to</div>
+        @if (_mutuals.Count == 0)
+        {
+            <p style="color:var(--text-muted);font-size:13px">No direct mutual connections found.</p>
+        }
+        else
+        {
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Title</th>
+                        <th>Team</th>
+                        <th>Department</th>
+                        <th>Bridge</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var m in _mutuals)
+                    {
+                        <tr>
+                            <td style="font-weight:600;color:var(--purple-300)">@m.Name</td>
+                            <td style="color:var(--text-secondary);font-size:12px">@m.Title</td>
+                            <td><span class="badge badge-team">@m.Team</span></td>
+                            <td><span class="badge badge-dept-@(m.Department.ToLower().Replace(" ",""))">@m.Department</span></td>
+                            <td>@(m.IsBridge ? "🌉" : "")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+}
+
+<div class="card">
+    <div class="card-title">💡 Example paths to try</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+        @foreach (var (f, t, why) in _examples)
+        {
+            <div style="display:flex;align-items:center;gap:12px;padding:7px 0;border-bottom:1px solid var(--border)">
+                <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px"
+                        @onclick="() => TryExample(f, t)">Try</button>
+                <span style="color:var(--purple-300);font-size:12px;font-weight:600">@f</span>
+                <span style="color:var(--text-muted)">→</span>
+                <span style="color:var(--purple-300);font-size:12px;font-weight:600">@t</span>
+                <span style="color:var(--text-muted);font-size:12px">— @why</span>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+.path-node-dept { font-size:9px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); margin-bottom:1px; }
+.path-node-team { font-size:10px; font-weight:600; color:var(--purple-300); }
+.path-node-end  { border-color: var(--purple-400); box-shadow: 0 0 12px rgba(139,92,246,.30); }
+.badge-team     { background:rgba(99,102,241,.18); color:#a5b4fc; }
+.badge-dept-engineering { background:rgba(34,211,238,.15); color:#67e8f9; }
+.badge-dept-product     { background:rgba(168,85,247,.15); color:#d8b4fe; }
+.badge-dept-operations  { background:rgba(245,158,11,.15); color:#fde68a; }
+</style>
+
+@code {
+    private List<string> _people = [];
+    private string _from = "";
+    private string _to   = "";
+    private PathResult? _result;
+    private List<SocialPerson>? _mutuals;
+    private bool _loading, _searched;
+
+    private readonly (string, string, string)[] _examples =
+    [
+        ("Alice Chen",    "Zara Khan",     "cross-department, 3+ hops expected"),
+        ("Bob Patel",     "Maya Zhang",    "same-department bridge via PM team"),
+        ("Carol Smith",   "Victor Torres", "Engineering to Operations cross"),
+        ("David Johnson", "Sophia Brown",  "Frontend to Analytics path"),
+        ("Eve Williams",  "Oscar Garcia",  "ML to Security gap — tests bridge nodes"),
+    ];
+
+    protected override void OnInitialized() => _people = Svc.GetAllPersonNames();
+
+    private async Task FindPath()
+    {
+        if (string.IsNullOrEmpty(_from) || string.IsNullOrEmpty(_to)) return;
+        _loading = true; _searched = false; _result = null; _mutuals = null;
+        StateHasChanged();
+        await Task.Yield();
+        _result  = Svc.FindShortestPath(_from, _to);
+        _mutuals = Svc.GetMutualConnections(_from, _to);
+        _searched = true;
+        _loading  = false;
+    }
+
+    private async Task TryExample(string f, string t)
+    {
+        _from = f; _to = t;
+        StateHasChanged();
+        await FindPath();
+    }
+}

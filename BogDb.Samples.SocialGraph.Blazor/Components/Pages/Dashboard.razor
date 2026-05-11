@@ -1,0 +1,143 @@
+@page "/"
+@rendermode InteractiveServer
+@inject SocialGraphService Svc
+@inject IJSRuntime JS
+
+<PageTitle>Dashboard · SocialGraph</PageTitle>
+
+<div class="page-header">
+    <h1>🕸 Social Network Dashboard</h1>
+    <p>Org-wide graph — connections, influence, and community structure at a glance</p>
+</div>
+
+@if (_stats is null)
+{
+    <div class="loading"><div class="spinner"></div>Loading graph…</div>
+}
+else
+{
+    <div class="stat-grid">
+        <div class="stat-card">
+            <div class="stat-label">People</div>
+            <div class="stat-value">@_stats.People</div>
+            <div class="stat-sub">in the graph</div>
+        </div>
+        <div class="stat-card accent">
+            <div class="stat-label">KNOWS Edges</div>
+            <div class="stat-value">@_stats.KnowsEdges</div>
+            <div class="stat-sub">social connections</div>
+        </div>
+        <div class="stat-card indigo">
+            <div class="stat-label">Teams</div>
+            <div class="stat-value">@_stats.Teams</div>
+            <div class="stat-sub">across @_stats.Departments depts</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Avg Degree</div>
+            <div class="stat-value">@_stats.AvgDegree</div>
+            <div class="stat-sub">connections / person</div>
+        </div>
+        <div class="stat-card amber">
+            <div class="stat-label">Bridge Nodes</div>
+            <div class="stat-value">@_stats.BridgeNodes</div>
+            <div class="stat-sub">cross-dept connectors</div>
+        </div>
+        <div class="stat-card pink">
+            <div class="stat-label">Org Edges</div>
+            <div class="stat-value">@_stats.ReportsEdges</div>
+            <div class="stat-sub">REPORTS_TO links</div>
+        </div>
+    </div>
+
+    <div class="charts-grid">
+        <div class="card">
+            <div class="card-title">🏢 People by Department</div>
+            <div class="chart-wrap"><canvas id="dept-chart"></canvas></div>
+        </div>
+        <div class="card">
+            <div class="card-title">👥 People by Team</div>
+            <div class="chart-wrap"><canvas id="team-chart"></canvas></div>
+        </div>
+        <div class="card full-row">
+            <div class="card-title">⭐ Top 10 Most Connected People</div>
+            <div class="chart-wrap" style="height:180px"><canvas id="top-chart"></canvas></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-title">💡 The Graph-Native Moment</div>
+        <pre class="cypher-editor" style="height:auto;min-height:0;padding:14px;resize:none;pointer-events:none;font-size:12px">MATCH p = shortestPath(
+  (a:Person {name: 'Alice Chen'})-[:KNOWS*]-(b:Person {name: 'Zara Khan'})
+)
+RETURN [n IN nodes(p) | n.name] AS introduction_chain, length(p) AS hops</pre>
+        <p style="margin-top:10px;font-size:12px;color:var(--text-secondary)">
+            In SQL this requires 6+ self-join CTEs with depth limits. In BogDB, undirected
+            variable-length paths (<code>-[:KNOWS*]-</code>) traverse the full graph automatically.
+        </p>
+    </div>
+
+    @if (_topPeople is not null && _topPeople.Count > 0)
+    {
+        <div class="card">
+            <div class="card-title">🔗 Top 10 Most Connected People</div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Name</th>
+                        <th>Title</th>
+                        <th>Team</th>
+                        <th>Department</th>
+                        <th>Bridge</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @for (int ri = 0; ri < _topPeople.Count; ri++)
+                    {
+                        var p = _topPeople[ri];
+                        <tr>
+                            <td style="font-family:var(--font-mono);color:var(--text-muted);width:36px">@(ri + 1)</td>
+                            <td style="font-weight:600;color:var(--purple-300)">@p.Name</td>
+                            <td style="color:var(--text-secondary);font-size:12px">@p.Title</td>
+                            <td><span class="badge" style="background:rgba(99,102,241,.18);color:#a5b4fc">@p.Team</span></td>
+                            <td><span class="badge badge-dept-@(p.Department.ToLower().Replace(" ",""))">@p.Department</span></td>
+                            <td style="text-align:center">@(p.IsBridge ? "🌉" : "")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private DashboardStats? _stats;
+    private ChartData? _deptData, _teamData, _topData;
+    private List<SocialPerson>? _topPeople;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _stats    = Svc.GetDashboardStats();
+        _deptData = Svc.GetPeopleByDept();
+        _teamData = Svc.GetPeopleByTeam();
+        _topData  = Svc.GetTopConnected();
+        _topPeople = Svc.GetTopConnectedPeople(10);
+        await Task.CompletedTask;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _deptData is null) return;
+
+        var colors = new[] { "#8b5cf6","#6366f1","#22d3ee","#ec4899","#f59e0b","#a78bfa","#c4b5fd","#67e8f9","#f9a8d4","#fde68a" };
+
+        await JS.InvokeVoidAsync("createDoughnutChart", "dept-chart",
+            _deptData.Labels, _deptData.Values, colors);
+
+        await JS.InvokeVoidAsync("createBarChart", "team-chart",
+            _teamData!.Labels, _teamData.Values, colors);
+
+        await JS.InvokeVoidAsync("createBarChart", "top-chart",
+            _topData!.Labels, _topData.Values, new[] { "#8b5cf6" });
+    }
+}

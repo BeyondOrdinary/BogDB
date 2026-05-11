@@ -1,0 +1,37 @@
+@inherits LayoutComponentBase
+@inject NavigationManager NavManager
+
+<div class="sidebar">
+    <div class="sidebar-header">
+        <h1 class="brand-title">🐉 BogDB</h1>
+        <div class="brand-subtitle">Graph-Native Monster Manual</div>
+    </div>
+    <div class="nav-menu">
+        <div class="nav-section">Explore</div>
+        <a class="@GetActive("") nav-link" href="">🗺️ Dashboard</a>
+        <a class="@GetActive("manual") nav-link" href="manual">📙 Monster Browser</a>
+        
+        <div class="nav-section" style="margin-top:16px">Campaign</div>
+        <a class="@GetActive("dungeon") nav-link" href="dungeon">🏰 Dungeon Planner</a>
+        
+        <div class="nav-section" style="margin-top:16px">Learning</div>
+        <a class="@GetActive("cypher") nav-link" href="cypher">📜 Cypher Grimoire</a>
+    </div>
+</div>
+
+<main class="main-content">
+    @Body
+</main>
+
+@code {
+    private string GetActive(string path)
+    {
+        var activePath = NavManager.ToBaseRelativePath(NavManager.Uri);
+        if (string.IsNullOrEmpty(path))
+        {
+            return string.IsNullOrEmpty(activePath) ? "active" : "";
+        }
+        return activePath.StartsWith(path) ? "active" : "";
+    }
+}
+

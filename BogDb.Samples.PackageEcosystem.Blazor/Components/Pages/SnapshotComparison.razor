@@ -1,0 +1,191 @@
+@page "/compare"
+@rendermode InteractiveServer
+@inject PackageEcosystemGraphService Graph
+
+<PageTitle>Snapshot Comparison — PackageEcosystem</PageTitle>
+
+<div class="page-header">
+    <h1>Snapshot Comparison</h1>
+    <p class="page-sub">Compare two quarterly snapshots using <code>BuildChangeReviewOverview</code> and <code>TopGainingNodeTables</code> from <code>GraphShardLocalRuntime</code> — no Cypher required.</p>
+</div>
+
+<div class="card">
+    <div class="control-row">
+        <label>From snapshot:</label>
+        <select @bind="_fromLabel" class="select-input">
+            @foreach (var s in _snapshots)
+            {
+                <option value="@s.Label">@s.Label (@s.TakenAt.ToString("MMM yyyy"))</option>
+            }
+        </select>
+        <label>To snapshot:</label>
+        <select @bind="_toLabel" class="select-input">
+            @foreach (var s in _snapshots)
+            {
+                <option value="@s.Label">@s.Label (@s.TakenAt.ToString("MMM yyyy"))</option>
+            }
+        </select>
+        <button class="btn-primary" @onclick="RunReview">Compare →</button>
+    </div>
+</div>
+
+@if (_running)
+{
+    <div class="loading">Computing change review...</div>
+}
+else if (_review is not null)
+{
+    <div class="callout api-callout">
+        <strong>API called:</strong> <code>currentRuntime.BuildChangeReviewOverview(previousShard)</code><br/>
+        <strong>Result:</strong> <code>@_review.OverviewLabel</code>
+    </div>
+
+    <div class="stat-grid four-col">
+        <div class="stat-card @(_review.AddedPackages > 0 ? "teal" : "gray")">
+            <div class="stat-value">+@_review.AddedPackages</div>
+            <div class="stat-label">Added Releases</div>
+        </div>
+        <div class="stat-card @(_review.RemovedPackages > 0 ? "red" : "gray")">
+            <div class="stat-value">-@_review.RemovedPackages</div>
+            <div class="stat-label">Removed Releases</div>
+        </div>
+        <div class="stat-card @(_review.AddedDeps > 0 ? "blue" : "gray")">
+            <div class="stat-value">+@_review.AddedDeps</div>
+            <div class="stat-label">Added Dependencies</div>
+        </div>
+        <div class="stat-card @(_review.RemovedDeps > 0 ? "orange" : "gray")">
+            <div class="stat-value">-@_review.RemovedDeps</div>
+            <div class="stat-label">Removed Dependencies</div>
+        </div>
+    </div>
+
+    <div class="card-grid">
+        <div class="card">
+            <h2>Top Gaining Node Tables <span class="api-tag">TopGainingNodeTables</span></h2>
+            @if (!_review.TopGainingPackages.Any())
+            {
+                <p class="dim">No node-table gains detected.</p>
+            }
+            else
+            {
+                <table class="data-table">
+                    <thead><tr><th>Table</th><th>Added</th><th>Removed</th><th>Net Δ</th></tr></thead>
+                    <tbody>
+                    @foreach (var row in _review.TopGainingPackages)
+                    {
+                        <tr>
+                            <td>@row.Key</td>
+                            <td class="green">+@row.AddedCount</td>
+                            <td class="red">-@row.RemovedCount</td>
+                            <td class="@(row.NetDelta >= 0 ? "green" : "red")">@(row.NetDelta >= 0 ? "+" : "")@row.NetDelta</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            }
+        </div>
+
+        <div class="card">
+            <h2>Top Declining Node Tables <span class="api-tag">TopDecliningNodeTables</span></h2>
+            @if (!_review.TopDecliningPackages.Any())
+            {
+                <p class="dim">No node-table declines detected.</p>
+            }
+            else
+            {
+                <table class="data-table">
+                    <thead><tr><th>Table</th><th>Added</th><th>Removed</th><th>Net Δ</th></tr></thead>
+                    <tbody>
+                    @foreach (var row in _review.TopDecliningPackages)
+                    {
+                        <tr>
+                            <td>@row.Key</td>
+                            <td class="green">+@row.AddedCount</td>
+                            <td class="red">-@row.RemovedCount</td>
+                            <td class="@(row.NetDelta >= 0 ? "green" : "red")">@(row.NetDelta >= 0 ? "+" : "")@row.NetDelta</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            }
+        </div>
+
+        <div class="card">
+            <h2>Relationship Type Changes <span class="api-tag">TopGainingRelationshipTypes</span></h2>
+            @if (!_review.TopGainingDepTypes.Any())
+            {
+                <p class="dim">No relationship type changes detected.</p>
+            }
+            else
+            {
+                <table class="data-table">
+                    <thead><tr><th>Rel Type</th><th>Added</th><th>Removed</th><th>Net Δ</th></tr></thead>
+                    <tbody>
+                    @foreach (var row in _review.TopGainingDepTypes)
+                    {
+                        <tr>
+                            <td>@row.Key</td>
+                            <td class="green">+@row.AddedCount</td>
+                            <td class="red">-@row.RemovedCount</td>
+                            <td class="@(row.NetDelta >= 0 ? "green" : "red")">@(row.NetDelta >= 0 ? "+" : "")@row.NetDelta</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            }
+        </div>
+
+        <div class="card">
+            <h2>Release Year Distribution <span class="api-tag">HistogramNodesForTable</span></h2>
+            @if (!_review.DownloadTimeBuckets.Any())
+            {
+                <p class="dim">No histogram data.</p>
+            }
+            else
+            {
+                <div class="bar-list">
+                @foreach (var b in _review.DownloadTimeBuckets.OrderBy(x => x.BucketLabel))
+                {
+                    var maxCount = _review.DownloadTimeBuckets.Max(x => x.Count);
+                    var pct = maxCount > 0 ? (100.0 * b.Count / maxCount) : 0;
+                    <div class="bar-row">
+                        <span class="bar-label">@b.BucketLabel</span>
+                        <div class="bar-track">
+                            <div class="bar-fill" style="width:@pct.ToString("F0")%"></div>
+                        </div>
+                        <span class="bar-count">@b.Count</span>
+                    </div>
+                }
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private List<SnapshotSummary> _snapshots = [];
+    private string _fromLabel = "Q1-2024";
+    private string _toLabel   = "Q2-2024";
+    private ChangeReviewSummary? _review;
+    private bool _running;
+
+    protected override void OnInitialized()
+    {
+        _snapshots = Graph.GetSnapshots();
+        if (_snapshots.Count >= 2)
+        {
+            _fromLabel = _snapshots[0].Label;
+            _toLabel   = _snapshots[1].Label;
+        }
+    }
+
+    private async Task RunReview()
+    {
+        _running = true;
+        _review  = null;
+        StateHasChanged();
+        await Task.Yield();
+        _review  = Graph.GetChangeReview(_fromLabel, _toLabel);
+        _running = false;
+    }
+}
