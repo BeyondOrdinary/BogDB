@@ -1,0 +1,400 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://acop.dev/schemas/v0.1/acop-orchestration.schema.json",
+  "title": "ACOP Orchestration Extension Schema",
+  "description": "Orchestration extension/profile for ACOP core, defining reusable execution flows with stages, lanes, gates, release conditions, and acceptance records.",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "orchestration_profile_version",
+    "flow"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "const": "acop/0.1"
+    },
+    "orchestration_profile_version": {
+      "type": "string",
+      "const": "acop-orchestration/0.1"
+    },
+    "flow": {
+      "$ref": "#/$defs/flow"
+    },
+    "stages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stage"
+      },
+      "default": []
+    },
+    "lanes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/lane"
+      },
+      "default": []
+    },
+    "gates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/gate"
+      },
+      "default": []
+    },
+    "release_conditions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/release_condition"
+      },
+      "default": []
+    },
+    "flow_edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/flow_edge"
+      },
+      "default": []
+    },
+    "acceptance_records": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/acceptance_record"
+      },
+      "default": []
+    }
+  },
+  "$defs": {
+    "stage_kind": {
+      "type": "string",
+      "enum": [
+        "foundation",
+        "schema",
+        "backend",
+        "frontend",
+        "integration",
+        "review",
+        "compliance",
+        "release",
+        "custom"
+      ]
+    },
+    "gate_kind": {
+      "type": "string",
+      "enum": [
+        "integration_gate",
+        "review_gate",
+        "schema_gate",
+        "compliance_gate",
+        "release_gate",
+        "custom"
+      ]
+    },
+    "release_policy": {
+      "type": "string",
+      "enum": [
+        "all_upstream_accepted",
+        "all_required_artifacts_present",
+        "all_required_validation_passed",
+        "all_required_compliance_satisfied",
+        "explicit_owner_approval",
+        "custom"
+      ]
+    },
+    "acceptance_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "completed_not_accepted",
+        "reviewed",
+        "accepted",
+        "rejected",
+        "released",
+        "superseded"
+      ]
+    },
+    "owner_role": {
+      "type": "string",
+      "enum": [
+        "lead_agent",
+        "worker_agent",
+        "review_agent",
+        "integration_agent",
+        "compliance_agent",
+        "human_reviewer",
+        "custom"
+      ]
+    },
+    "flow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "flow_id",
+        "protocol_version",
+        "orchestration_profile_version",
+        "title",
+        "target_repo_id"
+      ],
+      "properties": {
+        "flow_id": {
+          "type": "string"
+        },
+        "protocol_version": {
+          "type": "string",
+          "const": "acop/0.1"
+        },
+        "orchestration_profile_version": {
+          "type": "string",
+          "const": "acop-orchestration/0.1"
+        },
+        "title": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "producer": {
+          "type": "string"
+        },
+        "target_repo_id": {
+          "type": "string"
+        },
+        "default_release_policy": {
+          "$ref": "#/$defs/release_policy"
+        }
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage_id",
+        "title",
+        "stage_kind"
+      ],
+      "properties": {
+        "stage_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "stage_kind": {
+          "$ref": "#/$defs/stage_kind"
+        },
+        "owner_role": {
+          "$ref": "#/$defs/owner_role"
+        }
+      }
+    },
+    "lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lane_id",
+        "stage_id",
+        "title"
+      ],
+      "properties": {
+        "lane_id": {
+          "type": "string"
+        },
+        "stage_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "owner_role": {
+          "$ref": "#/$defs/owner_role"
+        },
+        "emits_work_kind": {
+          "type": "string"
+        }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gate_id",
+        "gate_kind",
+        "title",
+        "release_policy"
+      ],
+      "properties": {
+        "gate_id": {
+          "type": "string"
+        },
+        "stage_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "gate_kind": {
+          "$ref": "#/$defs/gate_kind"
+        },
+        "release_policy": {
+          "$ref": "#/$defs/release_policy"
+        },
+        "owner_role": {
+          "$ref": "#/$defs/owner_role"
+        },
+        "required_artifact_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "required_validation_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "required_requirement_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      }
+    },
+    "release_condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "condition_id",
+        "target_id",
+        "release_policy"
+      ],
+      "properties": {
+        "condition_id": {
+          "type": "string"
+        },
+        "target_id": {
+          "type": "string"
+        },
+        "release_policy": {
+          "$ref": "#/$defs/release_policy"
+        },
+        "required_gate_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "required_lane_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "required_stage_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "flow_edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from_id",
+        "to_id",
+        "edge_kind"
+      ],
+      "properties": {
+        "from_id": {
+          "type": "string"
+        },
+        "to_id": {
+          "type": "string"
+        },
+        "edge_kind": {
+          "type": "string",
+          "enum": [
+            "flows_to",
+            "feeds_gate",
+            "releases",
+            "blocks"
+          ]
+        }
+      }
+    },
+    "acceptance_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "acceptance_id",
+        "target_id",
+        "acceptance_status",
+        "recorded_at_utc"
+      ],
+      "properties": {
+        "acceptance_id": {
+          "type": "string"
+        },
+        "workspace_id": {
+          "type": "string"
+        },
+        "target_id": {
+          "type": "string"
+        },
+        "target_kind": {
+          "type": "string",
+          "enum": [
+            "flow",
+            "stage",
+            "lane",
+            "gate",
+            "release_condition",
+            "work_item",
+            "custom"
+          ]
+        },
+        "acceptance_status": {
+          "$ref": "#/$defs/acceptance_status"
+        },
+        "recorded_at_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "recorded_by_agent_uid": {
+          "type": "string"
+        },
+        "source_work_item_id": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

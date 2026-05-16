@@ -1,0 +1,542 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://acop.dev/schemas/v0.1/acop.schema.json",
+  "title": "ACOP Core Schema",
+  "description": "Agentic Code Orchestration Protocol core work-coordination contract.",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "work_item"
+  ],
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "const": "acop/0.1"
+    },
+    "work_item": {
+      "$ref": "#/$defs/work_item"
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/blocker"
+      },
+      "default": []
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/operation"
+      },
+      "default": []
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact"
+      },
+      "default": []
+    },
+    "validation_requirements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/validation_requirement"
+      },
+      "default": []
+    },
+    "blackboard_entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/blackboard_entry"
+      },
+      "default": []
+    },
+    "claim_intent": {
+      "$ref": "#/$defs/claim_intent"
+    },
+    "claim": {
+      "$ref": "#/$defs/claim"
+    },
+    "lease_heartbeat": {
+      "$ref": "#/$defs/lease_heartbeat"
+    }
+  },
+  "$defs": {
+    "severity": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ]
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "urgent"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "ready",
+        "requires_attention",
+        "blocked",
+        "claimed",
+        "in_progress",
+        "completed",
+        "accepted",
+        "released",
+        "consumed",
+        "cancelled",
+        "superseded"
+      ]
+    },
+    "work_kind": {
+      "type": "string",
+      "enum": [
+        "implement",
+        "refactor",
+        "review",
+        "validate",
+        "repair",
+        "handoff_followup",
+        "merge_prepare"
+      ]
+    },
+    "readiness": {
+      "type": "string",
+      "enum": [
+        "ready",
+        "contingent",
+        "blocked"
+      ]
+    },
+    "claim_status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "released",
+        "expired",
+        "revoked"
+      ]
+    },
+    "blackboard_entry_kind": {
+      "type": "string",
+      "enum": [
+        "finding",
+        "hypothesis",
+        "partial_result",
+        "risk",
+        "decision",
+        "constraint",
+        "review_request",
+        "integration_note"
+      ]
+    },
+    "blackboard_status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "superseded",
+        "accepted",
+        "rejected",
+        "resolved"
+      ]
+    },
+    "work_item": {
+      "type": "object",
+      "required": [
+        "work_item_id",
+        "protocol_version",
+        "work_kind",
+        "created_at_utc",
+        "producer",
+        "status",
+        "priority",
+        "actionability_score"
+      ],
+      "properties": {
+        "work_item_id": {
+          "type": "string"
+        },
+        "protocol_version": {
+          "type": "string",
+          "const": "acop/0.1"
+        },
+        "work_kind": {
+          "$ref": "#/$defs/work_kind"
+        },
+        "created_at_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "producer": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "priority": {
+          "$ref": "#/$defs/priority"
+        },
+        "actionability_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "title": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "target_repo_id": {
+          "type": "string"
+        },
+        "target_workspace_root": {
+          "type": "string"
+        },
+        "target_branch": {
+          "type": "string"
+        },
+        "target_worktree": {
+          "type": "string"
+        },
+        "source_handoff_id": {
+          "type": "string"
+        },
+        "correlation_id": {
+          "type": "string"
+        },
+        "target_agent_uid": {
+          "type": "string"
+        },
+        "participant_agent_uids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "owned_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "owned_symbols": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "blocker": {
+      "type": "object",
+      "required": [
+        "blocker_code",
+        "severity",
+        "summary"
+      ],
+      "properties": {
+        "blocker_code": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/severity"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "artifact_id": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "depends_on_work_item_id": {
+          "type": "string"
+        },
+        "depends_on_external_decision": {
+          "type": "boolean"
+        },
+        "suggested_resolution": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "operation": {
+      "type": "object",
+      "required": [
+        "operation_id",
+        "kind",
+        "description"
+      ],
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "depends_on_operation_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "outcome_target": {
+          "type": "string"
+        },
+        "artifact_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "validation_focus": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifact": {
+      "type": "object",
+      "required": [
+        "artifact_id",
+        "artifact_kind",
+        "artifact_role"
+      ],
+      "properties": {
+        "artifact_id": {
+          "type": "string"
+        },
+        "artifact_kind": {
+          "type": "string"
+        },
+        "artifact_role": {
+          "type": "string"
+        },
+        "resource_uri": {
+          "type": "string"
+        },
+        "repo_relative_path": {
+          "type": "string"
+        },
+        "namespace_hint": {
+          "type": "string"
+        },
+        "symbol_hint": {
+          "type": "string"
+        },
+        "readiness": {
+          "$ref": "#/$defs/readiness"
+        }
+      },
+      "additionalProperties": false
+    },
+    "validation_requirement": {
+      "type": "object",
+      "required": [
+        "requirement_id",
+        "kind",
+        "summary"
+      ],
+      "properties": {
+        "requirement_id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "artifact_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "blackboard_entry": {
+      "type": "object",
+      "required": [
+        "entry_id",
+        "work_item_id",
+        "entry_kind",
+        "author_agent_uid",
+        "created_at_utc",
+        "status"
+      ],
+      "properties": {
+        "entry_id": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        },
+        "entry_kind": {
+          "$ref": "#/$defs/blackboard_entry_kind"
+        },
+        "author_agent_uid": {
+          "type": "string"
+        },
+        "created_at_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "$ref": "#/$defs/blackboard_status"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "details": {
+          "type": "string"
+        },
+        "artifact_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "operation_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "supersedes_entry_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "claim_intent": {
+      "type": "object",
+      "required": [
+        "claim_intent_id",
+        "work_item_id",
+        "worker_agent_uid",
+        "requested_at_utc",
+        "requested_ttl_seconds",
+        "scope"
+      ],
+      "properties": {
+        "claim_intent_id": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        },
+        "worker_agent_uid": {
+          "type": "string"
+        },
+        "requested_at_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "requested_ttl_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "scope": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "claim": {
+      "type": "object",
+      "required": [
+        "claim_id",
+        "work_item_id",
+        "worker_agent_uid",
+        "granted_at_utc",
+        "expires_at_utc",
+        "claim_status"
+      ],
+      "properties": {
+        "claim_id": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        },
+        "worker_agent_uid": {
+          "type": "string"
+        },
+        "granted_at_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expires_at_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "claim_status": {
+          "$ref": "#/$defs/claim_status"
+        }
+      },
+      "additionalProperties": false
+    },
+    "lease_heartbeat": {
+      "type": "object",
+      "required": [
+        "claim_id",
+        "observed_at_utc"
+      ],
+      "properties": {
+        "claim_id": {
+          "type": "string"
+        },
+        "observed_at_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "progress_status": {
+          "type": "string"
+        },
+        "progress_summary": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

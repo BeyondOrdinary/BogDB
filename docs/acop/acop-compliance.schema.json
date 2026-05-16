@@ -1,0 +1,332 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://acop.dev/schemas/v0.1/acop-compliance.schema.json",
+  "title": "ACOP Compliance Extension Schema",
+  "description": "Compliance extension/profile for ACOP core work coordination.",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "compliance_profile_version",
+    "work_item_id"
+  ],
+  "properties": {
+    "protocol_version": {
+      "type": "string",
+      "const": "acop/0.1"
+    },
+    "compliance_profile_version": {
+      "type": "string",
+      "const": "acop-compliance/0.1"
+    },
+    "work_item_id": {
+      "type": "string"
+    },
+    "requirements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/requirement"
+      },
+      "default": []
+    },
+    "matrix_entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/requirement_matrix_entry"
+      },
+      "default": []
+    },
+    "evidence_records": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence_record"
+      },
+      "default": []
+    },
+    "exception_justifications": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/exception_justification"
+      },
+      "default": []
+    },
+    "policy_gates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/policy_gate"
+      },
+      "default": []
+    }
+  },
+  "$defs": {
+    "severity": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ]
+    },
+    "completeness_status": {
+      "type": "string",
+      "enum": [
+        "not_started",
+        "partial",
+        "satisfied",
+        "blocked",
+        "excepted",
+        "not_applicable"
+      ]
+    },
+    "gate_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "passed",
+        "failed",
+        "waived",
+        "blocked"
+      ]
+    },
+    "requirement": {
+      "type": "object",
+      "required": [
+        "requirement_id",
+        "name",
+        "category",
+        "description",
+        "applies_to_work_kinds"
+      ],
+      "properties": {
+        "requirement_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "applies_to_work_kinds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "framework": {
+          "type": "string"
+        },
+        "control_family": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/severity"
+        },
+        "owner_role": {
+          "type": "string"
+        },
+        "required_evidence_kinds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "requirement_matrix_entry": {
+      "type": "object",
+      "required": [
+        "matrix_entry_id",
+        "work_item_id",
+        "requirement_id",
+        "completeness_status"
+      ],
+      "properties": {
+        "matrix_entry_id": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        },
+        "requirement_id": {
+          "type": "string"
+        },
+        "completeness_status": {
+          "$ref": "#/$defs/completeness_status"
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "exception_id": {
+          "type": "string"
+        },
+        "assessed_at_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "assessed_by_agent_uid": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "blocker_codes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence_record": {
+      "type": "object",
+      "required": [
+        "evidence_id",
+        "evidence_kind",
+        "summary",
+        "created_at_utc"
+      ],
+      "properties": {
+        "evidence_id": {
+          "type": "string"
+        },
+        "evidence_kind": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "created_at_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "artifact_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "resource_uri": {
+          "type": "string"
+        },
+        "producer": {
+          "type": "string"
+        },
+        "source_work_item_id": {
+          "type": "string"
+        },
+        "validation_result": {
+          "type": "string"
+        },
+        "review_result": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "exception_justification": {
+      "type": "object",
+      "required": [
+        "exception_id",
+        "requirement_id",
+        "scope",
+        "justification",
+        "approved_by_role"
+      ],
+      "properties": {
+        "exception_id": {
+          "type": "string"
+        },
+        "requirement_id": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "justification": {
+          "type": "string"
+        },
+        "approved_by_role": {
+          "type": "string"
+        },
+        "approved_by_agent_uid": {
+          "type": "string"
+        },
+        "approved_at_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "risk_acceptance_summary": {
+          "type": "string"
+        },
+        "mitigations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "expires_at_utc": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "policy_gate": {
+      "type": "object",
+      "required": [
+        "policy_gate_id",
+        "name",
+        "applies_to_transition",
+        "gate_status"
+      ],
+      "properties": {
+        "policy_gate_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "applies_to_transition": {
+          "type": "string"
+        },
+        "gate_status": {
+          "$ref": "#/$defs/gate_status"
+        },
+        "blocking_requirement_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "required_approval_roles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "failure_summary": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

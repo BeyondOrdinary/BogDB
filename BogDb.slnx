@@ -10,6 +10,7 @@
   <Project Path="BogDb.Extensions.Postgres/BogDb.Extensions.Postgres.csproj" />
   <Project Path="BogDb.Extensions.SQLite/BogDb.Extensions.SQLite.csproj" />
   <Project Path="BogDb.Extensions.Vector/BogDb.Extensions.Vector.csproj" />
+  <Project Path="BogDb.Acop.Mcp.Server/BogDb.Acop.Mcp.Server.csproj" />
   <Project Path="BogDb.Mcp.Codegen.Server/BogDb.Mcp.Codegen.Server.csproj" />
   <Project Path="BogDb.Mcp.Server/BogDb.Mcp.Server.csproj" />
   <Project Path="BogDb.Samples.FraudGraph.Console/BogDb.Samples.FraudGraph.Console.csproj" />
