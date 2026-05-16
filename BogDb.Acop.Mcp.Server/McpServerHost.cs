@@ -157,10 +157,14 @@ public sealed class McpServerHost
                     {
                         work_item_id = new { type = "string" },
                         worker_agent_uid = new { type = "string" },
+                        coordination_scope_id = new { type = "string" },
                         requested_ttl_seconds = new { type = "integer", minimum = 1 },
+                        agent_capabilities = new { type = "array", items = new { type = "string" } },
+                        owned_paths = new { type = "array", items = new { type = "string" } },
+                        owned_symbols = new { type = "array", items = new { type = "string" } },
                         scope = new { type = "object" }
                     },
-                    required = new[] { "work_item_id", "worker_agent_uid" }
+                    required = new[] { "work_item_id", "worker_agent_uid", "coordination_scope_id" }
                 }
             },
             new
@@ -194,16 +198,31 @@ public sealed class McpServerHost
                     properties = new
                     {
                         work_item_id = new { type = "string" },
-                        work_kind = new { type = "string" },
+                        work_kind = new
+                        {
+                            type = "string",
+                            description = "implement / refactor / review / validate / repair / handoff_followup / merge_prepare / conflict_resolution"
+                        },
                         title = new { type = "string" },
                         summary = new { type = "string" },
+                        coordination_scope_id = new { type = "string" },
+                        priority = new
+                        {
+                            type = "string",
+                            description = "low / medium / high / urgent"
+                        },
+                        actionability_score = new { type = "number", minimum = 0, maximum = 1 },
                         target_repo_id = new { type = "string" },
                         target_branch = new { type = "string" },
-                        owned_paths = new { type = "array", items = new { type = "string" } },
                         target_agent_uid = new { type = "string" },
-                        actionability_score = new { type = "number", minimum = 0, maximum = 1 }
+                        stage_id = new { type = "string" },
+                        correlation_id = new { type = "string" },
+                        source_handoff_id = new { type = "string" },
+                        required_capabilities = new { type = "array", items = new { type = "string" } },
+                        owned_paths = new { type = "array", items = new { type = "string" } },
+                        owned_symbols = new { type = "array", items = new { type = "string" } }
                     },
-                    required = new[] { "work_item_id", "work_kind" }
+                    required = new[] { "work_item_id", "work_kind", "title", "coordination_scope_id" }
                 }
             },
             new
@@ -216,10 +235,17 @@ public sealed class McpServerHost
                     properties = new
                     {
                         work_item_id = new { type = "string" },
-                        accepting_agent_uid = new { type = "string" },
-                        acceptance_notes = new { type = "string" }
+                        acceptance_kind = new
+                        {
+                            type = "string",
+                            description = "reviewed / accepted / released"
+                        },
+                        implementation_claim_id = new { type = "string" },
+                        notes = new { type = "string" },
+                        acceptance_notes = new { type = "string" },
+                        allow_self_acceptance = new { type = "boolean" }
                     },
-                    required = new[] { "work_item_id", "accepting_agent_uid" }
+                    required = new[] { "work_item_id" }
                 }
             },
             new
@@ -232,7 +258,12 @@ public sealed class McpServerHost
                     properties = new
                     {
                         work_item_id = new { type = "string" },
-                        entry_kind = new { type = "string" },
+                        coordination_scope_id = new { type = "string" },
+                        entry_kind = new
+                        {
+                            type = "string",
+                            description = "finding / hypothesis / partial_result / risk / decision / constraint / review_request / integration_note"
+                        },
                         author_agent_uid = new { type = "string" },
                         summary = new { type = "string" },
                         details = new { type = "string" },
@@ -240,7 +271,7 @@ public sealed class McpServerHost
                         operation_ids = new { type = "array", items = new { type = "string" } },
                         supersedes_entry_ids = new { type = "array", items = new { type = "string" } }
                     },
-                    required = new[] { "work_item_id", "entry_kind", "author_agent_uid" }
+                    required = new[] { "work_item_id", "coordination_scope_id", "entry_kind", "summary" }
                 }
             }
         }
