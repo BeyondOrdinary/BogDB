@@ -11,3 +11,4 @@ BogDb.Extensions.SQLite/BogDb.Extensions.SQLite.csproj
 BogDb.Extensions.Vector/BogDb.Extensions.Vector.csproj
 BogDb.Mcp.Server/BogDb.Mcp.Server.csproj
 BogDb.Mcp.Codegen.Server/BogDb.Mcp.Codegen.Server.csproj
+BogDb.Acop.Mcp.Server/BogDb.Acop.Mcp.Server.csproj
