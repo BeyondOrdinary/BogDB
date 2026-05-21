@@ -10,7 +10,8 @@ namespace BogDb.Extensions.Algo;
 /// Graph algorithms extension — C++ parity with bogdb-master/extension/algo.
 /// Surfaces Louvain community detection, SCC, K-Core decomposition,
 /// and Spanning Forest as table functions, complementing the in-core GDS
-/// (which already provides PageRank, WCC, SSSP, K-Hop).
+/// (which already provides PageRank, WCC, SSSP, SSSP Path Reconstruction,
+/// Delta-Stepping SSSP, K-Hop, and Variable-Length Path).
 /// </summary>
 public class AlgoExtension : IExtension
 {
