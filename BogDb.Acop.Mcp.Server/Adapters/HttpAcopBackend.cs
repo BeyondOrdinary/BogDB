@@ -24,16 +24,14 @@ public sealed class HttpAcopBackend : IAcopBackend, IDisposable
 
     private readonly HttpClient _httpClient;
     private readonly bool _ownsClient;
+    private readonly IAcopTokenProvider? _tokenProvider;
 
-    public HttpAcopBackend(Uri baseUri, string? bearerToken = null, HttpClient? httpClient = null)
+    public HttpAcopBackend(Uri baseUri, IAcopTokenProvider? tokenProvider = null, HttpClient? httpClient = null)
     {
         _ownsClient = httpClient is null;
         _httpClient = httpClient ?? new HttpClient();
         _httpClient.BaseAddress = baseUri;
-        if (!string.IsNullOrWhiteSpace(bearerToken))
-        {
-            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
-        }
+        _tokenProvider = tokenProvider;
     }
 
     public Task<JsonElement> ClaimWorkItemAsync(JsonElement arguments, CancellationToken cancellationToken)
@@ -142,14 +140,30 @@ public sealed class HttpAcopBackend : IAcopBackend, IDisposable
 
     private async Task<JsonElement> PostAsync(string path, JsonObject body, CancellationToken cancellationToken)
     {
+        await ApplyAuthorizationAsync(cancellationToken);
         using var response = await _httpClient.PostAsJsonAsync(path, (JsonNode)body, JsonOptions, cancellationToken);
         return await ReadResponseAsync(response, cancellationToken);
     }
 
     private async Task<JsonElement> PutAsync(string path, JsonObject body, CancellationToken cancellationToken)
     {
+        await ApplyAuthorizationAsync(cancellationToken);
         using var response = await _httpClient.PutAsJsonAsync(path, (JsonNode)body, JsonOptions, cancellationToken);
         return await ReadResponseAsync(response, cancellationToken);
+    }
+
+    private async Task ApplyAuthorizationAsync(CancellationToken cancellationToken)
+    {
+        if (_tokenProvider is null)
+        {
+            return;
+        }
+
+        var token = await _tokenProvider.GetTokenAsync(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
     }
 
     private static async Task<JsonElement> ReadResponseAsync(HttpResponseMessage response, CancellationToken cancellationToken)
@@ -355,5 +369,136 @@ public sealed class HttpAcopBackend : IAcopBackend, IDisposable
         {
             _httpClient.Dispose();
         }
+    }
+}
+
+public interface IAcopTokenProvider : IDisposable
+{
+    Task<string?> GetTokenAsync(CancellationToken cancellationToken);
+}
+
+public sealed class AcopTokenProvider : IAcopTokenProvider
+{
+    private static readonly TimeSpan RefreshSkew = TimeSpan.FromSeconds(30);
+
+    private readonly string? _staticBearerToken;
+    private readonly Uri? _tokenEndpoint;
+    private readonly string? _clientId;
+    private readonly string? _clientSecret;
+    private readonly string? _audience;
+    private readonly HttpClient _httpClient;
+    private readonly SemaphoreSlim _refreshLock = new(1, 1);
+    private string? _cachedToken;
+    private DateTimeOffset _expiresAtUtc;
+
+    private AcopTokenProvider(
+        string? staticBearerToken,
+        Uri? tokenEndpoint,
+        string? clientId,
+        string? clientSecret,
+        string? audience,
+        HttpClient? httpClient = null)
+    {
+        _staticBearerToken = string.IsNullOrWhiteSpace(staticBearerToken) ? null : staticBearerToken.Trim();
+        _tokenEndpoint = tokenEndpoint;
+        _clientId = string.IsNullOrWhiteSpace(clientId) ? null : clientId.Trim();
+        _clientSecret = string.IsNullOrWhiteSpace(clientSecret) ? null : clientSecret;
+        _audience = string.IsNullOrWhiteSpace(audience) ? null : audience.Trim();
+        _httpClient = httpClient ?? new HttpClient();
+    }
+
+    public static AcopTokenProvider? Create(
+        string? staticBearerToken,
+        string? tokenEndpoint,
+        string? clientId,
+        string? clientSecret,
+        string? audience)
+    {
+        if (Uri.TryCreate(tokenEndpoint, UriKind.Absolute, out var endpoint)
+            && !string.IsNullOrWhiteSpace(clientId)
+            && !string.IsNullOrWhiteSpace(clientSecret))
+        {
+            return new AcopTokenProvider(staticBearerToken, endpoint, clientId, clientSecret, audience);
+        }
+
+        return string.IsNullOrWhiteSpace(staticBearerToken)
+            ? null
+            : new AcopTokenProvider(staticBearerToken, null, null, null, null);
+    }
+
+    public async Task<string?> GetTokenAsync(CancellationToken cancellationToken)
+    {
+        if (_tokenEndpoint is null || _clientId is null || _clientSecret is null)
+        {
+            return _staticBearerToken;
+        }
+
+        if (!NeedsRefresh())
+        {
+            return _cachedToken;
+        }
+
+        await _refreshLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (!NeedsRefresh())
+            {
+                return _cachedToken;
+            }
+
+            var form = new Dictionary<string, string>
+            {
+                ["grant_type"] = "client_credentials",
+                ["client_id"] = _clientId,
+                ["client_secret"] = _clientSecret
+            };
+            if (!string.IsNullOrWhiteSpace(_audience))
+            {
+                form["audience"] = _audience;
+            }
+
+            using var response = await _httpClient.PostAsync(_tokenEndpoint, new FormUrlEncodedContent(form), cancellationToken);
+            var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException(
+                    $"ACOP token endpoint returned {(int)response.StatusCode} {response.StatusCode}. Body: {payload}",
+                    inner: null,
+                    statusCode: response.StatusCode);
+            }
+
+            using var document = JsonDocument.Parse(payload);
+            var token = document.RootElement.TryGetProperty("access_token", out var tokenElement)
+                ? tokenElement.GetString()
+                : null;
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                throw new InvalidOperationException("ACOP token endpoint response did not include access_token.");
+            }
+
+            var expiresIn = document.RootElement.TryGetProperty("expires_in", out var expiresElement)
+                && expiresElement.ValueKind == JsonValueKind.Number
+                && expiresElement.TryGetInt32(out var parsedExpires)
+                    ? Math.Max(parsedExpires, 1)
+                    : 300;
+
+            _cachedToken = token;
+            _expiresAtUtc = DateTimeOffset.UtcNow.AddSeconds(expiresIn);
+            return _cachedToken;
+        }
+        finally
+        {
+            _refreshLock.Release();
+        }
+    }
+
+    private bool NeedsRefresh()
+        => string.IsNullOrWhiteSpace(_cachedToken)
+            || DateTimeOffset.UtcNow >= _expiresAtUtc.Subtract(RefreshSkew);
+
+    public void Dispose()
+    {
+        _refreshLock.Dispose();
+        _httpClient.Dispose();
     }
 }

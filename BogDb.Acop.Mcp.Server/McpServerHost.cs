@@ -39,7 +39,7 @@ public sealed class McpServerHost
             if (message is null)
                 break;
 
-            using var document = JsonDocument.Parse(message);
+            using var document = JsonDocument.Parse(message.Payload);
             var root = document.RootElement;
             if (!root.TryGetProperty("method", out var methodElement))
                 continue;
@@ -72,7 +72,7 @@ public sealed class McpServerHost
                     jsonrpc = "2.0",
                     id,
                     result
-                }, cancellationToken);
+                }, message.Framing, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -85,7 +85,7 @@ public sealed class McpServerHost
                         code = -32000,
                         message = ex.Message
                     }
-                }, cancellationToken);
+                }, message.Framing, cancellationToken);
             }
         }
     }
@@ -277,34 +277,48 @@ public sealed class McpServerHost
         }
     };
 
-    private static async Task<string?> ReadMessageAsync(Stream input, CancellationToken cancellationToken)
+    private enum McpMessageFraming
+    {
+        Header,
+        Line
+    }
+
+    private sealed record McpMessage(string Payload, McpMessageFraming Framing);
+
+    private static async Task<McpMessage?> ReadMessageAsync(Stream input, CancellationToken cancellationToken)
     {
         var headerBytes = new List<byte>();
-        var headerTerminator = Encoding.ASCII.GetBytes("\r\n\r\n");
+        var firstByte = await ReadByteAsync(input, cancellationToken);
+        if (firstByte is null)
+            return null;
+
+        headerBytes.Add(firstByte.Value);
+        if (firstByte.Value == (byte)'{')
+        {
+            while (true)
+            {
+                var nextByte = await ReadByteAsync(input, cancellationToken);
+                if (nextByte is null)
+                    break;
+
+                headerBytes.Add(nextByte.Value);
+                if (nextByte.Value == (byte)'\n')
+                    break;
+            }
+
+            var line = Encoding.UTF8.GetString(headerBytes.ToArray()).TrimEnd('\r', '\n');
+            return new McpMessage(line, McpMessageFraming.Line);
+        }
 
         while (true)
         {
-            var buffer = ArrayPool<byte>.Shared.Rent(1);
-            try
-            {
-                var bytesRead = await input.ReadAsync(buffer.AsMemory(0, 1), cancellationToken);
-                if (bytesRead == 0)
-                    return headerBytes.Count == 0 ? null : throw new EndOfStreamException("Unexpected EOF while reading MCP headers.");
+            var nextByte = await ReadByteAsync(input, cancellationToken);
+            if (nextByte is null)
+                throw new EndOfStreamException("Unexpected EOF while reading MCP headers.");
 
-                headerBytes.Add(buffer[0]);
-                if (headerBytes.Count >= 4 &&
-                    headerBytes[^4] == headerTerminator[0] &&
-                    headerBytes[^3] == headerTerminator[1] &&
-                    headerBytes[^2] == headerTerminator[2] &&
-                    headerBytes[^1] == headerTerminator[3])
-                {
-                    break;
-                }
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
-            }
+            headerBytes.Add(nextByte.Value);
+            if (HasHeaderTerminator(headerBytes))
+                break;
         }
 
         var headers = Encoding.ASCII.GetString(headerBytes.ToArray());
@@ -319,12 +333,42 @@ public sealed class McpServerHost
             offset += read;
         }
 
-        return Encoding.UTF8.GetString(payload);
+        return new McpMessage(Encoding.UTF8.GetString(payload), McpMessageFraming.Header);
+    }
+
+    private static async Task<byte?> ReadByteAsync(Stream input, CancellationToken cancellationToken)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(1);
+        try
+        {
+            var bytesRead = await input.ReadAsync(buffer.AsMemory(0, 1), cancellationToken);
+            return bytesRead == 0 ? null : buffer[0];
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    private static bool HasHeaderTerminator(IReadOnlyList<byte> bytes)
+    {
+        if (bytes.Count >= 4
+            && bytes[^4] == (byte)'\r'
+            && bytes[^3] == (byte)'\n'
+            && bytes[^2] == (byte)'\r'
+            && bytes[^1] == (byte)'\n')
+        {
+            return true;
+        }
+
+        return bytes.Count >= 2
+            && bytes[^2] == (byte)'\n'
+            && bytes[^1] == (byte)'\n';
     }
 
     private static int ParseContentLength(string headers)
     {
-        foreach (var line in headers.Split("\r\n", StringSplitOptions.RemoveEmptyEntries))
+        foreach (var line in headers.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             if (!line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase))
                 continue;
@@ -337,10 +381,18 @@ public sealed class McpServerHost
         throw new InvalidOperationException("Missing Content-Length header.");
     }
 
-    private static async Task WriteResponseAsync(Stream output, object payload, CancellationToken cancellationToken)
+    private static async Task WriteResponseAsync(Stream output, object payload, McpMessageFraming framing, CancellationToken cancellationToken)
     {
         var body = JsonSerializer.Serialize(payload, JsonOptions);
         var bodyBytes = Encoding.UTF8.GetBytes(body);
+        if (framing == McpMessageFraming.Line)
+        {
+            await output.WriteAsync(bodyBytes, cancellationToken);
+            await output.WriteAsync(new[] { (byte)'\n' }, cancellationToken);
+            await output.FlushAsync(cancellationToken);
+            return;
+        }
+
         var headerBytes = Encoding.ASCII.GetBytes($"Content-Length: {bodyBytes.Length}\r\n\r\n");
 
         await output.WriteAsync(headerBytes, cancellationToken);
