@@ -15,6 +15,7 @@ public sealed class McpServerHost
     private readonly BogDbQueryToolService _queryService = new();
     private readonly BogDbSchemaToolService _schemaService = new();
     private readonly HandoffResourceService _handoffResourceService;
+    private readonly CodeIntelligenceQueryToolService _codeQueryService;
     private readonly OrchestrationQueryToolService _orchestrationQueryService;
     private readonly OrchestrationAcceptanceToolService _orchestrationAcceptanceService;
     private readonly OrchestrationAcceptanceIngestToolService _orchestrationAcceptanceIngestService;
@@ -23,6 +24,7 @@ public sealed class McpServerHost
     public McpServerHost(string? workspaceRoot = null)
     {
         _handoffResourceService = new HandoffResourceService(workspaceRoot);
+        _codeQueryService = new CodeIntelligenceQueryToolService(_queryService, workspaceRoot);
         _orchestrationQueryService = new OrchestrationQueryToolService(_queryService, workspaceRoot);
         _orchestrationAcceptanceService = new OrchestrationAcceptanceToolService();
         _orchestrationAcceptanceIngestService = new OrchestrationAcceptanceIngestToolService();
@@ -117,6 +119,9 @@ public sealed class McpServerHost
             "bogdb_schema" => _schemaService.GetSchema(arguments),
             "bogdb_tables" => _schemaService.GetTables(arguments),
             "bogdb_table_info" => _schemaService.GetTableInfo(arguments),
+            "code_symbol_search" => await _codeQueryService.SearchSymbolsAsync(arguments, cancellationToken),
+            "code_dependencies" => await _codeQueryService.QueryDependenciesAsync(arguments, cancellationToken),
+            "code_refactor_hotspots" => await _codeQueryService.QueryRefactorHotspotsAsync(arguments, cancellationToken),
             "handoff_query" => _handoffResourceService.QueryHandoffs(arguments),
             "orchestration_pending_gates" => await _orchestrationQueryService.QueryPendingGatesAsync(arguments, cancellationToken),
             "orchestration_release_ready_gates" => await _orchestrationQueryService.QueryReleaseReadyGatesAsync(arguments, cancellationToken),
@@ -211,7 +216,7 @@ public sealed class McpServerHost
                         {
                             databasePath = new { type = "string" }
                         },
-                        required = new[] { "databasePath" }
+                        required = Array.Empty<string>()
                     }
                 },
                 new
@@ -225,7 +230,7 @@ public sealed class McpServerHost
                         {
                             databasePath = new { type = "string" }
                         },
-                        required = new[] { "databasePath" }
+                        required = Array.Empty<string>()
                     }
                 },
                 new
@@ -241,6 +246,61 @@ public sealed class McpServerHost
                             tableName = new { type = "string" }
                         },
                         required = new[] { "databasePath", "tableName" }
+                    }
+                },
+                new
+                {
+                    name = "code_symbol_search",
+                    description = "Find code symbols (classes, methods, functions, interfaces, records) in a BO code graph by case-insensitive name substring, with their kind, signature, and declaring file.",
+                    inputSchema = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            databasePath = new { type = "string", description = "Optional; defaults to the agent worktree's .bo/graph. Path to a BO code graph (BogDB database)." },
+                            query = new { type = "string", description = "Substring matched (case-insensitive) against symbol qualified and display names." },
+                            kind = new { type = "string", description = "Optional exact kind filter (e.g. class, method, function, interface, record)." },
+                            rowLimit = new { type = "integer", minimum = 1, maximum = 1000 },
+                            timeoutMs = new { type = "integer", minimum = 1 }
+                        },
+                        required = new[] { "query" }
+                    }
+                },
+                new
+                {
+                    name = "code_dependencies",
+                    description = "Return symbol-to-symbol dependency edges (calls / uses-type / instantiates) for a symbol and/or the symbols declared in a file, in the requested direction.",
+                    inputSchema = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            databasePath = new { type = "string", description = "Optional; defaults to the agent worktree's .bo/graph. Path to a BO code graph (BogDB database)." },
+                            symbol = new { type = "string", description = "Symbol name substring to anchor on (case-insensitive)." },
+                            file = new { type = "string", description = "File path substring; anchors on symbols declared in matching files." },
+                            direction = new { type = "string", @enum = new[] { "in", "out", "both" }, description = "Edge direction to return (default both)." },
+                            rowLimit = new { type = "integer", minimum = 1, maximum = 1000 },
+                            timeoutMs = new { type = "integer", minimum = 1 }
+                        },
+                        required = Array.Empty<string>()
+                    }
+                },
+                new
+                {
+                    name = "code_refactor_hotspots",
+                    description = "Return files ranked by refactor pressure score (descending) from a BO code graph, with optional minimum-score and recommendation filters.",
+                    inputSchema = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            databasePath = new { type = "string", description = "Optional; defaults to the agent worktree's .bo/graph. Path to a BO code graph (BogDB database)." },
+                            minScore = new { type = "number", description = "Only return files whose refactor pressure score is >= this value." },
+                            recommendation = new { type = "string", description = "Optional exact recommendation filter (e.g. split, extract, none)." },
+                            rowLimit = new { type = "integer", minimum = 1, maximum = 1000 },
+                            timeoutMs = new { type = "integer", minimum = 1 }
+                        },
+                        required = Array.Empty<string>()
                     }
                 },
                 new
@@ -290,7 +350,7 @@ public sealed class McpServerHost
                             rowLimit = new { type = "integer", minimum = 1, maximum = 1000 },
                             timeoutMs = new { type = "integer", minimum = 1 }
                         },
-                        required = new[] { "databasePath" }
+                        required = Array.Empty<string>()
                     }
                 },
                 new
@@ -309,7 +369,7 @@ public sealed class McpServerHost
                             rowLimit = new { type = "integer", minimum = 1, maximum = 1000 },
                             timeoutMs = new { type = "integer", minimum = 1 }
                         },
-                        required = new[] { "databasePath" }
+                        required = Array.Empty<string>()
                     }
                 },
                 new
@@ -328,7 +388,7 @@ public sealed class McpServerHost
                             rowLimit = new { type = "integer", minimum = 1, maximum = 1000 },
                             timeoutMs = new { type = "integer", minimum = 1 }
                         },
-                        required = new[] { "databasePath" }
+                        required = Array.Empty<string>()
                     }
                 },
                 new
@@ -347,7 +407,7 @@ public sealed class McpServerHost
                             rowLimit = new { type = "integer", minimum = 1, maximum = 1000 },
                             timeoutMs = new { type = "integer", minimum = 1 }
                         },
-                        required = new[] { "databasePath" }
+                        required = Array.Empty<string>()
                     }
                 },
                 new
@@ -366,7 +426,7 @@ public sealed class McpServerHost
                             rowLimit = new { type = "integer", minimum = 1, maximum = 1000 },
                             timeoutMs = new { type = "integer", minimum = 1 }
                         },
-                        required = new[] { "databasePath" }
+                        required = Array.Empty<string>()
                     }
                 },
                 new
@@ -385,7 +445,7 @@ public sealed class McpServerHost
                             rowLimit = new { type = "integer", minimum = 1, maximum = 1000 },
                             timeoutMs = new { type = "integer", minimum = 1 }
                         },
-                        required = new[] { "databasePath" }
+                        required = Array.Empty<string>()
                     }
                 },
                 new
@@ -404,7 +464,7 @@ public sealed class McpServerHost
                             rowLimit = new { type = "integer", minimum = 1, maximum = 1000 },
                             timeoutMs = new { type = "integer", minimum = 1 }
                         },
-                        required = new[] { "databasePath" }
+                        required = Array.Empty<string>()
                     }
                 },
                 new
@@ -420,7 +480,7 @@ public sealed class McpServerHost
                             artifactPath = new { type = "string" },
                             indexPath = new { type = "string" }
                         },
-                        required = new[] { "databasePath" }
+                        required = Array.Empty<string>()
                     }
                 },
                 new
@@ -458,7 +518,7 @@ public sealed class McpServerHost
                             artifactPath = new { type = "string" },
                             indexPath = new { type = "string" }
                         },
-                        required = new[] { "databasePath" }
+                        required = Array.Empty<string>()
                     }
                 }
             }

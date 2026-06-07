@@ -8,6 +8,11 @@ Current phase-1 tool surface:
 - `bogdb_tables`
 - `bogdb_table_info`
 
+Code-intelligence tool surface (see "Code intelligence query surface" below):
+- `code_symbol_search`
+- `code_dependencies`
+- `code_refactor_hotspots`
+
 Current phase-1 resource surface:
 - handoff resources listed from `.handoffs/index.json` or `.bo/handoffs/index.json`
 - MCP `resources/read` returns the handoff envelope JSON for a listed resource
@@ -95,6 +100,14 @@ best pickup shape automatically:
 - falls back to a `single` ready verification handoff when batching would not help
 - returns `dominantPickupPressure` for both the overall selection and the winning batch/entry
 - returns `pickupFactorSummary` for both the overall selection and the winning batch/entry
+
+Code intelligence query surface (over a BO `.bo/graph` code graph, BoV01 schema):
+- `code_symbol_search` — find symbols by case-insensitive name substring, optional `kind`
+- `code_dependencies` — symbol→symbol edges (calls / uses-type / instantiates), anchored on a `symbol` and/or `file`, with `direction` of in/out/both
+- `code_refactor_hotspots` — files ranked by refactor pressure score, with `minScore` / `recommendation` filters
+- read-only; curated Cypher over the BO graph so agents don't hand-write it
+- `databasePath` is optional and defaults to `<BO_WORKSPACE_ROOT or CWD>/.bo/graph` — i.e. a launched agent's own worktree
+- this is the agent runtime code-intelligence path: `bo index` writes `.bo/graph`; agents query it through these tools
 
 Current orchestration query surface:
 - `orchestration_pending_gates`

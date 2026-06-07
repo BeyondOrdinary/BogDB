@@ -29,6 +29,15 @@ internal static class JsonArgumentReader
         return property.GetString();
     }
 
+    public static double? GetOptionalDouble(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var property))
+            return null;
+        if (property.ValueKind != JsonValueKind.Number || !property.TryGetDouble(out var value))
+            throw new InvalidOperationException($"Argument '{propertyName}' must be a number.");
+        return value;
+    }
+
     public static IReadOnlyDictionary<string, object?>? GetOptionalObject(JsonElement element, string propertyName)
     {
         if (!element.TryGetProperty(propertyName, out var property))
