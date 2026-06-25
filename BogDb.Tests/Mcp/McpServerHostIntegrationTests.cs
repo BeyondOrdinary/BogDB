@@ -58,6 +58,14 @@ public sealed class McpServerHostIntegrationTests
             var tools = responses[1].RootElement.GetProperty("result").GetProperty("tools").EnumerateArray().ToArray();
             Assert.Contains(tools, tool => tool.GetProperty("name").GetString() == "bogdb_query");
             Assert.Contains(tools, tool => tool.GetProperty("name").GetString() == "bogdb_schema");
+            Assert.Contains(tools, tool => tool.GetProperty("name").GetString() == "ox_ax_ix_awaiting_local_vx");
+            Assert.DoesNotContain(tools, tool => tool.GetProperty("name").GetString() == "orchestration_acceptance_ingests_awaiting_local_verification");
+            foreach (var tool in tools)
+            {
+                var name = tool.GetProperty("name").GetString();
+                Assert.NotNull(name);
+                Assert.True($"bogdb__{name}".Length <= 64, $"Tool name '{name}' exceeds the prefixed MCP 64-char limit.");
+            }
 
             var structured = responses[2].RootElement.GetProperty("result").GetProperty("structuredContent");
             Assert.True(structured.GetProperty("success").GetBoolean());

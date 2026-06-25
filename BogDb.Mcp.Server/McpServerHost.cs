@@ -113,6 +113,17 @@ public sealed class McpServerHost
             ? argsElement
             : default;
 
+        //
+        // Nomenclature:
+        // ox : orchestration
+        // ax : acceptance
+        // vx : verification
+        // ix : ingest
+        // deps : dependencies
+        // ats : artifacts
+        // gts : gates
+        // sts : status
+        //
         object toolResult = name switch
         {
             "bogdb_query" => await _queryService.ExecuteAsync(arguments, cancellationToken),
@@ -120,19 +131,19 @@ public sealed class McpServerHost
             "bogdb_tables" => _schemaService.GetTables(arguments),
             "bogdb_table_info" => _schemaService.GetTableInfo(arguments),
             "code_symbol_search" => await _codeQueryService.SearchSymbolsAsync(arguments, cancellationToken),
-            "code_dependencies" => await _codeQueryService.QueryDependenciesAsync(arguments, cancellationToken),
+            "code_deps" or "code_dependencies" => await _codeQueryService.QueryDependenciesAsync(arguments, cancellationToken),
             "code_refactor_hotspots" => await _codeQueryService.QueryRefactorHotspotsAsync(arguments, cancellationToken),
             "handoff_query" => _handoffResourceService.QueryHandoffs(arguments),
-            "orchestration_pending_gates" => await _orchestrationQueryService.QueryPendingGatesAsync(arguments, cancellationToken),
-            "orchestration_release_ready_gates" => await _orchestrationQueryService.QueryReleaseReadyGatesAsync(arguments, cancellationToken),
-            "orchestration_blocked_work" => await _orchestrationQueryService.QueryBlockedWorkAsync(arguments, cancellationToken),
-            "orchestration_lane_acceptance_gaps" => await _orchestrationQueryService.QueryLaneAcceptanceGapsAsync(arguments, cancellationToken),
-            "orchestration_acceptance_ingest_status" => await _orchestrationQueryService.QueryAcceptanceIngestStatusAsync(arguments, cancellationToken),
-            "orchestration_acceptance_verification_status" => await _orchestrationQueryService.QueryAcceptanceVerificationStatusAsync(arguments, cancellationToken),
-            "orchestration_acceptance_ingests_awaiting_local_verification" => await _orchestrationQueryService.QueryAcceptanceIngestsAwaitingLocalVerificationAsync(arguments, cancellationToken),
-            "orchestration_record_acceptance" => await _orchestrationAcceptanceService.RecordAcceptanceAsync(arguments, cancellationToken),
-            "orchestration_ingest_acceptance_artifacts" => await _orchestrationAcceptanceIngestService.IngestAsync(arguments, cancellationToken),
-            "orchestration_ingest_acceptance_verification_artifacts" => await _orchestrationAcceptanceVerificationIngestService.IngestAsync(arguments, cancellationToken),
+            "ox_pending_gts" or "orchestration_pending_gates" => await _orchestrationQueryService.QueryPendingGatesAsync(arguments, cancellationToken),
+            "ox_release_ready_gts" or "orchestration_release_ready_gates" => await _orchestrationQueryService.QueryReleaseReadyGatesAsync(arguments, cancellationToken),
+            "ox_blocked_work" or "orchestration_blocked_work" => await _orchestrationQueryService.QueryBlockedWorkAsync(arguments, cancellationToken),
+            "ox_lane_ax_gaps" or "orchestration_lane_acceptance_gaps" => await _orchestrationQueryService.QueryLaneAcceptanceGapsAsync(arguments, cancellationToken),
+            "ox_ax_ix_sts" or "orchestration_acceptance_ingest_status" => await _orchestrationQueryService.QueryAcceptanceIngestStatusAsync(arguments, cancellationToken),
+            "ox_ax_vx_sts" or "orchestration_acceptance_verification_status" => await _orchestrationQueryService.QueryAcceptanceVerificationStatusAsync(arguments, cancellationToken),
+            "ox_ax_ix_awaiting_local_vx" or "orchestration_acceptance_ingests_awaiting_local_verification" => await _orchestrationQueryService.QueryAcceptanceIngestsAwaitingLocalVerificationAsync(arguments, cancellationToken),
+            "ox_record_ax" or "orchestration_record_acceptance" => await _orchestrationAcceptanceService.RecordAcceptanceAsync(arguments, cancellationToken),
+            "ox_ix_ax_ats" or "orchestration_ingest_acceptance_artifacts" => await _orchestrationAcceptanceIngestService.IngestAsync(arguments, cancellationToken),
+            "ox_ix_ax_vx_ats" or "orchestration_ingest_acceptance_verification_artifacts" => await _orchestrationAcceptanceVerificationIngestService.IngestAsync(arguments, cancellationToken),
             _ => throw new InvalidOperationException($"Unknown tool '{name}'.")
         };
 
@@ -268,7 +279,7 @@ public sealed class McpServerHost
                 },
                 new
                 {
-                    name = "code_dependencies",
+                    name = "code_deps",
                     description = "Return symbol-to-symbol dependency edges (calls / uses-type / instantiates) for a symbol and/or the symbols declared in a file, in the requested direction.",
                     inputSchema = new
                     {
@@ -336,7 +347,7 @@ public sealed class McpServerHost
                 },
                 new
                 {
-                    name = "orchestration_pending_gates",
+                    name = "ox_pending_gts",
                     description = "Query ACOP orchestration gates that are still pending acceptance in a BogDB database.",
                     inputSchema = new
                     {
@@ -355,7 +366,7 @@ public sealed class McpServerHost
                 },
                 new
                 {
-                    name = "orchestration_release_ready_gates",
+                    name = "ox_release_ready_gts",
                     description = "Query ACOP orchestration gates whose upstream lanes are accepted and ready for owner action.",
                     inputSchema = new
                     {
@@ -374,7 +385,7 @@ public sealed class McpServerHost
                 },
                 new
                 {
-                    name = "orchestration_blocked_work",
+                    name = "ox_blocked_work",
                     description = "Query work items blocked specifically by orchestration state in a BogDB database.",
                     inputSchema = new
                     {
@@ -393,7 +404,7 @@ public sealed class McpServerHost
                 },
                 new
                 {
-                    name = "orchestration_lane_acceptance_gaps",
+                    name = "ox_lane_ax_gaps",
                     description = "Query completed orchestration lanes that still need acceptance before downstream release.",
                     inputSchema = new
                     {
@@ -412,7 +423,7 @@ public sealed class McpServerHost
                 },
                 new
                 {
-                    name = "orchestration_acceptance_ingest_status",
+                    name = "ox_ax_ix_sts",
                     description = "Query durable acceptance-ingest lifecycle records in a BogDb orchestration database.",
                     inputSchema = new
                     {
@@ -431,7 +442,7 @@ public sealed class McpServerHost
                 },
                 new
                 {
-                    name = "orchestration_acceptance_verification_status",
+                    name = "ox_ax_vx_sts",
                     description = "Return durable acceptance verification lifecycle records from BogDB.",
                     inputSchema = new
                     {
@@ -450,7 +461,7 @@ public sealed class McpServerHost
                 },
                 new
                 {
-                    name = "orchestration_acceptance_ingests_awaiting_local_verification",
+                    name = "ox_ax_ix_awaiting_local_vx",
                     description = "Query acceptance ingests in BogDb that do not yet have a local BO verification receipt in the current workspace.",
                     inputSchema = new
                     {
@@ -469,7 +480,7 @@ public sealed class McpServerHost
                 },
                 new
                 {
-                    name = "orchestration_ingest_acceptance_verification_artifacts",
+                    name = "ox_ix_ax_vx_ats",
                     description = "Ingest BO-style local acceptance verification artifacts or a verification index into durable BogDb verification records.",
                     inputSchema = new
                     {
@@ -485,7 +496,7 @@ public sealed class McpServerHost
                 },
                 new
                 {
-                    name = "orchestration_record_acceptance",
+                    name = "ox_record_ax",
                     description = "Persist a durable orchestration acceptance record for a lane, gate, or stage.",
                     inputSchema = new
                     {
@@ -507,7 +518,7 @@ public sealed class McpServerHost
                 },
                 new
                 {
-                    name = "orchestration_ingest_acceptance_artifacts",
+                    name = "ox_ix_ax_ats",
                     description = "Ingest BO-style acceptance artifacts or an acceptance index into durable BogDb orchestration state.",
                     inputSchema = new
                     {
