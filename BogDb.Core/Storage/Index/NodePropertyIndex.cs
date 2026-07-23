@@ -48,7 +48,10 @@ internal sealed class InMemoryNodeIndex : INodeIndex
         if (key is null) return false;
         if (!_map.TryGetValue(key, out var offsets) || offsets.Count == 0)
             return false;
-        nodeOffsets = offsets;
+        // Snapshot: callers may mutate this index while iterating the result — e.g. an index-scan-driven
+        // DELETE removes each matched offset via RemoveNodeFromIndexes. Returning the live list would let
+        // that removal shift entries out from under the scan and skip nodes.
+        nodeOffsets = offsets.ToArray();
         return true;
     }
 
@@ -138,15 +141,17 @@ internal sealed class SnapshotBackedNodeIndex : INodeIndex
         if (!hasBase && !hasOverlay)
             return false;
 
+        // Snapshot single-source results too (the merged branch below already builds a fresh array), so a
+        // caller mutating this index mid-scan — e.g. an index-scan-driven DELETE — cannot skip entries.
         if (hasBase && !hasOverlay)
         {
-            nodeOffsets = baseOffsets!;
+            nodeOffsets = baseOffsets!.ToArray();
             return true;
         }
 
         if (!hasBase)
         {
-            nodeOffsets = overlayOffsets!;
+            nodeOffsets = overlayOffsets!.ToArray();
             return true;
         }
 
