@@ -26,7 +26,7 @@ public class IndexScanVisibilityTests
 
         var props = new Dictionary<string, object> { ["name"] = "Alice" };
         table.Upsert(writer, "n1", props);
-        db.UpdateNodeIndexes("Person", "n1", props, table);
+        db.UpdateNodeIndexes("Person", writer, "n1", props, table);
 
         var oldScan = new PhysicalIndexScanNode(db, "Person", "name", "Alice", "n", id: 1);
         var oldCtx = new BogDb.Core.Processor.ExecutionContext(oldReader, db.BufferManager);
@@ -97,7 +97,7 @@ public class IndexScanVisibilityTests
             startTS: 0);
         Assert.True(table.Remove(writer, "n1"));
         table.Upsert(writer, "n1", new Dictionary<string, object> { ["name"] = "Alice" });
-        db.UpdateNodeIndexes("Person", "n1", new Dictionary<string, object> { ["name"] = "Alice" }, table);
+        db.UpdateNodeIndexes("Person", writer, "n1", new Dictionary<string, object> { ["name"] = "Alice" }, table);
         table.CommitVersions(writer, commitTS: 6);
 
         var oldScan = new PhysicalIndexScanNode(db, "Person", "name", "Alice", "n", id: 5);

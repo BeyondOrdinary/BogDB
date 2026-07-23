@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace BogDb.Extensions.FTS;
@@ -19,9 +20,15 @@ public sealed class FtsIndex
     /// <summary>Property names indexed.</summary>
     public IReadOnlyList<string> Properties { get; }
 
-    // BM25 parameters
-    private const double K1 = 1.2;
-    private const double B  = 0.75;
+    // BM25 parameters (configurable per index; standard BM25 defaults are k1=1.2, b=0.75).
+    private readonly double _k1;
+    private readonly double _b;
+
+    /// <summary>BM25 term-frequency saturation parameter (k1). Higher values reward repeated terms more. Default 1.2.</summary>
+    public double K1 => _k1;
+
+    /// <summary>BM25 document-length normalization parameter (b), in [0, 1]. Default 0.75.</summary>
+    public double B => _b;
 
     // Inverted index: term → list of (docId, termFrequency)
     private readonly Dictionary<string, List<(long docId, int tf)>> _postings = new();
@@ -38,12 +45,110 @@ public sealed class FtsIndex
 
     private readonly FtsTokenizer _tokenizer;
 
-    public FtsIndex(string name, string tableName, IReadOnlyList<string> properties, FtsTokenizer? tokenizer = null)
+    public FtsIndex(
+        string name,
+        string tableName,
+        IReadOnlyList<string> properties,
+        FtsTokenizer? tokenizer = null,
+        double k1 = 1.2,
+        double b = 0.75)
     {
+        if (double.IsNaN(k1) || k1 < 0)
+            throw new ArgumentOutOfRangeException(nameof(k1), "BM25 k1 must be a number >= 0.");
+        if (double.IsNaN(b) || b < 0 || b > 1)
+            throw new ArgumentOutOfRangeException(nameof(b), "BM25 b must be a number between 0 and 1.");
+
         Name = name;
         TableName = tableName;
         Properties = properties;
         _tokenizer = tokenizer ?? new FtsTokenizer();
+        _k1 = k1;
+        _b = b;
+    }
+
+    /// <summary>
+    /// Serializes the inverted index (postings, phrase positions, document lengths) so it can be restored
+    /// on open without re-scanning the table and re-tokenizing. Configuration (name, table, properties,
+    /// k1, b, tokenizer) is not written — it is supplied from the index definition on read.
+    /// </summary>
+    internal void WriteTo(BinaryWriter writer)
+    {
+        writer.Write(_postings.Count);
+        foreach (var (term, list) in _postings)
+        {
+            writer.Write(term);
+            writer.Write(list.Count);
+            foreach (var (docId, tf) in list)
+            {
+                writer.Write(docId);
+                writer.Write(tf);
+            }
+        }
+
+        writer.Write(_positions.Count);
+        foreach (var (key, positions) in _positions)
+        {
+            writer.Write(key.docId);
+            writer.Write(key.term);
+            writer.Write(positions.Count);
+            foreach (var position in positions)
+                writer.Write(position);
+        }
+
+        writer.Write(_docLengths.Count);
+        foreach (var (docId, length) in _docLengths)
+        {
+            writer.Write(docId);
+            writer.Write(length);
+        }
+    }
+
+    /// <summary>Restores an index written by <see cref="WriteTo"/>, rebinding configuration from the definition.</summary>
+    internal static FtsIndex ReadFrom(
+        BinaryReader reader,
+        string name,
+        string tableName,
+        IReadOnlyList<string> properties,
+        FtsTokenizer tokenizer,
+        double k1,
+        double b)
+    {
+        var index = new FtsIndex(name, tableName, properties, tokenizer, k1, b);
+
+        var postingCount = reader.ReadInt32();
+        for (var i = 0; i < postingCount; i++)
+        {
+            var term = reader.ReadString();
+            var entryCount = reader.ReadInt32();
+            var list = new List<(long, int)>(entryCount);
+            for (var k = 0; k < entryCount; k++)
+                list.Add((reader.ReadInt64(), reader.ReadInt32()));
+            index._postings[term] = list;
+        }
+
+        var positionKeyCount = reader.ReadInt32();
+        for (var i = 0; i < positionKeyCount; i++)
+        {
+            var docId = reader.ReadInt64();
+            var term = reader.ReadString();
+            var positionCount = reader.ReadInt32();
+            var positions = new List<int>(positionCount);
+            for (var k = 0; k < positionCount; k++)
+                positions.Add(reader.ReadInt32());
+            index._positions[(docId, term)] = positions;
+        }
+
+        var docLengthCount = reader.ReadInt32();
+        for (var i = 0; i < docLengthCount; i++)
+        {
+            var docId = reader.ReadInt64();
+            index._docLengths[docId] = reader.ReadInt32();
+        }
+
+        // Derived aggregates (kept in sync with RemoveDocument's invariant).
+        index._totalDocs = index._docLengths.Count;
+        index._avgDocLength = index._totalDocs > 0 ? index._docLengths.Values.Average() : 0;
+        return index;
     }
 
     /// <summary>
@@ -141,7 +246,7 @@ public sealed class FtsIndex
             {
                 int docLen = _docLengths[docId];
                 // BM25 TF normalization
-                double tfNorm = (tf * (K1 + 1)) / (tf + K1 * (1 - B + B * docLen / _avgDocLength));
+                double tfNorm = (tf * (_k1 + 1)) / (tf + _k1 * (1 - _b + _b * docLen / _avgDocLength));
                 double termScore = idf * tfNorm;
 
                 scores.TryGetValue(docId, out var existing);

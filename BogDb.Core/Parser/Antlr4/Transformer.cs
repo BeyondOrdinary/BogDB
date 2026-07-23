@@ -854,7 +854,10 @@ public class Transformer
                 relPattern.PropertyKeyValues.Select(kvp => (kvp.Key, kvp.Value.Copy())).ToList(),
                 relPattern.PropertyBagExpression?.Copy(),
                 relPattern.LowerBound,
-                relPattern.UpperBound);
+                relPattern.UpperBound,
+                relPattern.RecursiveRelVariable,
+                relPattern.RecursiveNodeVariable,
+                relPattern.RecursiveFilter?.Copy());
 
         var rewritten = new PatternElement(RewriteNode(element.GetFirstNodePattern()));
         for (var chainIdx = 0; chainIdx < element.GetNumPatternElementChains(); chainIdx++)
@@ -930,6 +933,9 @@ public class Transformer
         ParsedExpression? propertyBag = null;
         string lowerBound = "1";
         string upperBound = "1";
+        string? recRelVar = null;
+        string? recNodeVar = null;
+        ParsedExpression? recFilter = null;
 
         if (detail != null)
         {
@@ -962,8 +968,21 @@ public class Transformer
                 }
                 else
                 {
-                    // '*' provided without explicit limits implies 1..* 
+                    // '*' provided without explicit limits implies 1..*
                     upperBound = "";
+                }
+
+                // Per-hop comprehension: (rr, nn | WHERE <predicate>). The grammar parses it here; capture
+                // the intermediate variables and the optional WHERE so it can be evaluated during traversal.
+                var comprehension = recursiveDetail.kU_RecursiveComprehension();
+                if (comprehension != null)
+                {
+                    if (comprehension.oC_Variable(0) != null)
+                        recRelVar = TransformVariable(comprehension.oC_Variable(0));
+                    if (comprehension.oC_Variable(1) != null)
+                        recNodeVar = TransformVariable(comprehension.oC_Variable(1));
+                    if (comprehension.oC_Where() != null)
+                        recFilter = TransformWhere(comprehension.oC_Where());
                 }
             }
         }
@@ -972,7 +991,8 @@ public class Transformer
                       : ctx.oC_RightArrowHead() != null ? ArrowDirection.RIGHT
                       : ArrowDirection.BOTH;
 
-        return new RelPattern(variable, relTypes, direction, properties, propertyBag, lowerBound, upperBound);
+        return new RelPattern(variable, relTypes, direction, properties, propertyBag, lowerBound, upperBound,
+            recRelVar, recNodeVar, recFilter);
     }
 
     private List<(string, ParsedExpression)> TransformPropertyEntriesIfPresent(CypherParser.KU_PropertiesContext? ctx)

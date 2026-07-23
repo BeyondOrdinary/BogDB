@@ -456,5 +456,244 @@ namespace BogDb.Tests.Extension
                     Directory.Delete(path, recursive: true);
             }
         }
+
+        [Fact]
+        public void CallQueryVectorIndex_ReflectsInsertsAfterCreate_Incrementally()
+        {
+            using var db = BogDatabase.CreateInMemory();
+            new VectorExtension().Load(db);
+            using var conn = new BogConnection(db);
+
+            Assert.True(conn.Query("CREATE NODE TABLE Document(id STRING, embedding FLOAT[])").IsSuccess);
+            Assert.True(conn.Query("CREATE (:Document {id:'far-doc', embedding:[0.0, 1.0]})").IsSuccess);
+            Assert.True(conn.Query("CREATE (:Document {id:'mid-doc', embedding:[0.7, 0.7]})").IsSuccess);
+            Assert.True(conn.Query("CALL create_vector_index('Document', 'doc_vec', 'embedding', 'cosine') RETURN *").IsSuccess);
+
+            // Baseline: with only far/mid indexed, mid-doc is the nearest to [1, 0].
+            var before = conn.Query("CALL query_vector_index('Document', 'doc_vec', [1.0, 0.0], 1) RETURN *");
+            Assert.True(before.IsSuccess, before.ErrorMessage);
+            Assert.True(before.HasNext());
+            Assert.Equal("mid-doc", before.GetNext().GetString(1));
+
+            // Insert an exact match AFTER the graph was built. The insert is folded into the graph
+            // incrementally (commit-deferred), so the query surfaces it on the fast path — no rebuild.
+            Assert.True(conn.Query("CREATE (:Document {id:'exact-doc', embedding:[1.0, 0.0]})").IsSuccess);
+
+            var after = conn.Query("CALL query_vector_index('Document', 'doc_vec', [1.0, 0.0], 1) RETURN *");
+            Assert.True(after.IsSuccess, after.ErrorMessage);
+            Assert.True(after.HasNext());
+            var row = after.GetNext();
+            Assert.Equal("exact-doc", row.GetString(1));
+            Assert.Equal(0.0, row.GetDouble(2), 5);
+        }
+
+        [Fact]
+        public void CallRebuildVectorIndex_RefreshesGraphAfterInsert()
+        {
+            using var db = BogDatabase.CreateInMemory();
+            new VectorExtension().Load(db);
+            using var conn = new BogConnection(db);
+
+            Assert.True(conn.Query("CREATE NODE TABLE Document(id STRING, embedding FLOAT[])").IsSuccess);
+            Assert.True(conn.Query("CREATE (:Document {id:'far-doc', embedding:[0.0, 1.0]})").IsSuccess);
+            Assert.True(conn.Query("CALL create_vector_index('Document', 'doc_vec', 'embedding', 'cosine') RETURN *").IsSuccess);
+
+            Assert.True(conn.Query("CREATE (:Document {id:'exact-doc', embedding:[1.0, 0.0]})").IsSuccess);
+
+            var rebuild = conn.Query("CALL rebuild_vector_index('Document', 'doc_vec') RETURN *");
+            Assert.True(rebuild.IsSuccess, rebuild.ErrorMessage);
+            Assert.True(rebuild.HasNext());
+            var rebuildRow = rebuild.GetNext();
+            Assert.Equal("Document", rebuildRow.GetString(0));
+            Assert.Equal("doc_vec", rebuildRow.GetString(1));
+            Assert.Equal(2L, rebuildRow.GetInt64(2)); // both vectors are now in the graph
+
+            // After the rebuild the fingerprint is current again, so the fast path is trusted and
+            // returns the freshly-indexed exact match.
+            var after = conn.Query("CALL query_vector_index('Document', 'doc_vec', [1.0, 0.0], 1) RETURN *");
+            Assert.True(after.IsSuccess, after.ErrorMessage);
+            Assert.True(after.HasNext());
+            Assert.Equal("exact-doc", after.GetNext().GetString(1));
+        }
+
+        [Fact]
+        public void CallQueryVectorIndex_L2Metric_ReportsEuclideanDistance_OnBothPaths()
+        {
+            using var db = BogDatabase.CreateInMemory();
+            new VectorExtension().Load(db);
+            using var conn = new BogConnection(db);
+
+            Assert.True(conn.Query("CREATE NODE TABLE Point(id STRING, embedding FLOAT[])").IsSuccess);
+            Assert.True(conn.Query("CREATE (:Point {id:'p', embedding:[3.0, 4.0]})").IsSuccess);
+            Assert.True(conn.Query("CALL create_vector_index('Point', 'pt_vec', 'embedding', 'l2') RETURN *").IsSuccess);
+
+            // Fast path (fresh graph): L2 from [0,0] to [3,4] must be Euclidean 5.0, not squared 25.0.
+            var fast = conn.Query("CALL query_vector_index('Point', 'pt_vec', [0.0, 0.0], 1) RETURN *");
+            Assert.True(fast.IsSuccess, fast.ErrorMessage);
+            Assert.True(fast.HasNext());
+            Assert.Equal(5.0, fast.GetNext().GetDouble(2), 5);
+
+            // Force the exact fallback: a direct storage Upsert bypasses the incremental hook, so the
+            // fingerprint diverges and the query falls back to an exact scan — which must also report 5.0.
+            conn.BeginWriteTransaction();
+            var tx = conn.ClientContext.ActiveTransaction!;
+            db.NodeTables["Point"].Upsert(tx, "far", new Dictionary<string, object>
+            {
+                ["id"] = "far",
+                ["embedding"] = new List<object?> { 10.0f, 10.0f }
+            });
+            conn.Commit();
+
+            var exact = conn.Query("CALL query_vector_index('Point', 'pt_vec', [0.0, 0.0], 1) RETURN *");
+            Assert.True(exact.IsSuccess, exact.ErrorMessage);
+            Assert.True(exact.HasNext());
+            var exactRow = exact.GetNext();
+            Assert.Equal("p", exactRow.GetString(1));
+            Assert.Equal(5.0, exactRow.GetDouble(2), 5);
+        }
+
+        [Fact]
+        public void GetNodeWriteFingerprint_ChangesWithInsertsAndResetsAfterRebuild()
+        {
+            using var db = BogDatabase.CreateInMemory();
+            new VectorExtension().Load(db);
+            using var conn = new BogConnection(db);
+
+            Assert.True(conn.Query("CREATE NODE TABLE Document(id STRING, embedding FLOAT[])").IsSuccess);
+            Assert.Equal(0L, db.GetNodeWriteFingerprint("Document"));
+
+            Assert.True(conn.Query("CREATE (:Document {id:'a', embedding:[1.0, 0.0]})").IsSuccess);
+            var afterOne = db.GetNodeWriteFingerprint("Document");
+            Assert.True(afterOne > 0L);
+
+            Assert.True(conn.Query("CREATE (:Document {id:'b', embedding:[0.0, 1.0]})").IsSuccess);
+            Assert.True(db.GetNodeWriteFingerprint("Document") > afterOne);
+
+            // Unknown tables report a stable zero rather than throwing.
+            Assert.Equal(0L, db.GetNodeWriteFingerprint("NoSuchTable"));
+        }
+
+        [Fact]
+        public void CallQueryVectorIndex_ReflectsDeleteAfterCreate_Incrementally()
+        {
+            using var db = BogDatabase.CreateInMemory();
+            new VectorExtension().Load(db);
+            using var conn = new BogConnection(db);
+
+            Assert.True(conn.Query("CREATE NODE TABLE Document(id STRING, embedding FLOAT[])").IsSuccess);
+            Assert.True(conn.Query("CREATE (:Document {id:'exact', embedding:[1.0, 0.0]})").IsSuccess);
+            Assert.True(conn.Query("CREATE (:Document {id:'other', embedding:[0.0, 1.0]})").IsSuccess);
+            Assert.True(conn.Query("CALL create_vector_index('Document', 'doc_vec', 'embedding', 'cosine') RETURN *").IsSuccess);
+
+            var before = conn.Query("CALL query_vector_index('Document', 'doc_vec', [1.0, 0.0], 1) RETURN *");
+            Assert.True(before.HasNext());
+            Assert.Equal("exact", before.GetNext().GetString(1));
+
+            // Deleting the nearest node must drop it from results (tombstoned in the graph, no rebuild).
+            Assert.True(conn.Query("MATCH (n:Document {id:'exact'}) DELETE n").IsSuccess);
+
+            var after = conn.Query("CALL query_vector_index('Document', 'doc_vec', [1.0, 0.0], 1) RETURN *");
+            Assert.True(after.IsSuccess, after.ErrorMessage);
+            Assert.True(after.HasNext());
+            Assert.Equal("other", after.GetNext().GetString(1));
+        }
+
+        [Fact]
+        public void CallQueryVectorIndex_ReflectsEmbeddingUpdateAfterCreate_Incrementally()
+        {
+            using var db = BogDatabase.CreateInMemory();
+            new VectorExtension().Load(db);
+            using var conn = new BogConnection(db);
+
+            Assert.True(conn.Query("CREATE NODE TABLE Document(id STRING, embedding FLOAT[])").IsSuccess);
+            Assert.True(conn.Query("CREATE (:Document {id:'x', embedding:[0.0, 1.0]})").IsSuccess);
+            Assert.True(conn.Query("CREATE (:Document {id:'y', embedding:[0.6, 0.8]})").IsSuccess);
+            Assert.True(conn.Query("CALL create_vector_index('Document', 'doc_vec', 'embedding', 'cosine') RETURN *").IsSuccess);
+
+            // Update x to become the exact match for [1, 0]; the graph must reflect the new embedding.
+            Assert.True(conn.Query("MATCH (n:Document {id:'x'}) SET n.embedding = [1.0, 0.0]").IsSuccess);
+
+            var after = conn.Query("CALL query_vector_index('Document', 'doc_vec', [1.0, 0.0], 1) RETURN *");
+            Assert.True(after.IsSuccess, after.ErrorMessage);
+            Assert.True(after.HasNext());
+            var row = after.GetNext();
+            Assert.Equal("x", row.GetString(1));
+            Assert.Equal(0.0, row.GetDouble(2), 5);
+        }
+
+        [Fact]
+        public void CallQueryVectorIndex_RolledBackInsert_NotReflected()
+        {
+            using var db = BogDatabase.CreateInMemory();
+            new VectorExtension().Load(db);
+            using var conn = new BogConnection(db);
+
+            Assert.True(conn.Query("CREATE NODE TABLE Document(id STRING, embedding FLOAT[])").IsSuccess);
+            Assert.True(conn.Query("CREATE (:Document {id:'keep', embedding:[0.0, 1.0]})").IsSuccess);
+            Assert.True(conn.Query("CALL create_vector_index('Document', 'doc_vec', 'embedding', 'cosine') RETURN *").IsSuccess);
+
+            // Insert an exact match inside a transaction, then roll back. Because the incremental delta is
+            // commit-deferred, the rolled-back node must never appear in the graph (nor via any fallback).
+            conn.BeginWriteTransaction();
+            Assert.True(conn.Query("CREATE (:Document {id:'ghost', embedding:[1.0, 0.0]})").IsSuccess);
+            conn.Rollback();
+
+            var after = conn.Query("CALL query_vector_index('Document', 'doc_vec', [1.0, 0.0], 1) RETURN *");
+            Assert.True(after.IsSuccess, after.ErrorMessage);
+            Assert.True(after.HasNext());
+            Assert.Equal("keep", after.GetNext().GetString(1));
+        }
+
+        [Fact]
+        public void Reopen_RestoresPersistedHnswGraphFromDisk()
+        {
+            var path = Path.Combine(Path.GetTempPath(), $"bogdb-vec-persist-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(path);
+            try
+            {
+                using (var db = BogDatabase.Open(path))
+                {
+                    new VectorExtension().Load(db);
+                    using var conn = new BogConnection(db);
+
+                    Assert.True(conn.Query("CREATE NODE TABLE Document(id STRING, embedding FLOAT[])").IsSuccess);
+                    conn.BeginWriteTransaction();
+                    conn.UpsertNode("Document", "apple", new Dictionary<string, object>
+                    {
+                        ["id"] = "apple",
+                        ["embedding"] = new List<object?> { 1.0f, 0.0f }
+                    });
+                    conn.UpsertNode("Document", "car", new Dictionary<string, object>
+                    {
+                        ["id"] = "car",
+                        ["embedding"] = new List<object?> { 0.0f, 1.0f }
+                    });
+                    conn.Commit();
+                    Assert.True(conn.Query("CALL create_vector_index('Document', 'doc_vec', 'embedding', 'cosine') RETURN *").IsSuccess);
+                } // Dispose → checkpoint → the HNSW graph is written to disk.
+
+                var graphFile = Path.Combine(path, "extensions", "vector.graphs.bin");
+                Assert.True(File.Exists(graphFile));
+                Assert.True(new FileInfo(graphFile).Length > 0);
+
+                using (var reopened = BogDatabase.Open(path))
+                {
+                    new VectorExtension().Load(reopened);
+                    using var conn = new BogConnection(reopened);
+
+                    var result = conn.Query("CALL query_vector_index('Document', 'doc_vec', [1.0, 0.0], 1) RETURN *");
+                    Assert.True(result.IsSuccess, result.ErrorMessage);
+                    Assert.True(result.HasNext());
+                    var row = result.GetNext();
+                    Assert.Equal("apple", row.GetString(1));
+                    Assert.Equal(0.0, row.GetDouble(2), 5);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(path))
+                    Directory.Delete(path, recursive: true);
+            }
+        }
     }
 }

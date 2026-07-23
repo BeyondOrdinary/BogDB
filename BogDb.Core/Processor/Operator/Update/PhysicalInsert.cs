@@ -112,7 +112,7 @@ public sealed class PhysicalInsert : PhysicalOperator
 
                 // Populate any registered property indexes via the canonical db method
                 if (_database.IsInMemory && _database.NodeTables.TryGetValue(tableName, out var idxTable))
-                    _database.UpdateNodeIndexes(tableName, idValue, properties, idxTable);
+                    _database.UpdateNodeIndexes(tableName, context.Transaction, idValue, properties, idxTable);
 
                 // Bind variable to context so downstream operators see it
                 if (!string.IsNullOrEmpty(node.VariableName))

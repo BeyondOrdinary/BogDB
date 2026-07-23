@@ -812,7 +812,72 @@ public class Binder
             };
             Scope.AddExpression(relPattern.VariableName, relVar);
         }
+
+        if (relPattern.RecursiveFilter != null && !string.IsNullOrEmpty(relPattern.RecursiveRelVariable))
+            BindPerHopComprehension(relPattern, queryRel, tableNames, dstNode);
+
         return queryRel;
+    }
+
+    // Binds a variable-length per-hop comprehension filter -[r:REL*lo..hi (rr, nn | WHERE …)]-> by
+    // introducing temporary scope entries for the intermediate edge (rr) and node (nn) variables, binding
+    // the predicate against them, then restoring scope. The bound predicate + variable names are stored on
+    // the QueryRel and evaluated per hop inside RecursiveExtend to prune non-matching edges.
+    private void BindPerHopComprehension(RelPattern relPattern, QueryRel queryRel, List<string> tableNames, QueryNode dstNode)
+    {
+        var relVarName = relPattern.RecursiveRelVariable!;
+        var nodeVarName = relPattern.RecursiveNodeVariable;
+
+        var relProps = BuildPropertyExpressions(relVarName, tableNames.ToList());
+        var innerRel = new QueryRel(
+            relVarName, tableNames.ToList(), queryRel.AllowedConnections.ToList(), queryRel.Direction,
+            queryRel.SrcNode, queryRel.DstNode, relProps, new List<(string, Expression)>());
+        var relVarExpr = new VariableExpression(relVarName, LogicalTypeID.REL) { QueryRel = innerRel };
+
+        VariableExpression? nodeVarExpr = null;
+        if (!string.IsNullOrEmpty(nodeVarName))
+        {
+            var nodeTableNames = dstNode.TableNames.ToList();
+            var nodeProps = BuildPropertyExpressions(nodeVarName!, nodeTableNames);
+            var innerNode = new QueryNode(nodeVarName!, nodeVarName!, nodeTableNames, nodeProps, new List<(string, Expression)>());
+            nodeVarExpr = new VariableExpression(nodeVarName!, LogicalTypeID.NODE) { QueryNode = innerNode };
+        }
+
+        var savedRel = PushScopedExpression(relVarName, relVarExpr);
+        var pushedNode = nodeVarExpr != null;
+        var savedNode = pushedNode ? PushScopedExpression(nodeVarName!, nodeVarExpr!) : null;
+        try
+        {
+            queryRel.PerHopPredicate = ExpressionBinder.BindExpression(relPattern.RecursiveFilter!);
+            queryRel.PerHopRelVariable = relVarName;
+            queryRel.PerHopNodeVariable = nodeVarName;
+        }
+        finally
+        {
+            if (pushedNode)
+                PopScopedExpression(nodeVarName!, savedNode);
+            PopScopedExpression(relVarName, savedRel);
+        }
+    }
+
+    // Adds a temporary binding for <paramref name="name"/>, returning any prior binding it shadowed.
+    private Expression? PushScopedExpression(string name, Expression expression)
+    {
+        Expression? prior = null;
+        if (Scope.Contains(name))
+        {
+            prior = Scope.GetExpression(name);
+            Scope.RemoveExpression(name);
+        }
+        Scope.AddExpression(name, expression);
+        return prior;
+    }
+
+    private void PopScopedExpression(string name, Expression? prior)
+    {
+        Scope.RemoveExpression(name);
+        if (prior != null)
+            Scope.AddExpression(name, prior);
     }
 
     private List<QueryRelConnection> BuildAllowedConnections(

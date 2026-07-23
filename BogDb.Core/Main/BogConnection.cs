@@ -1241,7 +1241,7 @@ public sealed class BogConnection : IDisposable
         normalized = CoercePropertiesForTable(tableName, normalized);
         table.Upsert(transaction, id, normalized);
         _database.GraphLog.AppendNode(tableName, id, normalized);
-        UpdateIndexesForNode(tableName, id, normalized, table);
+        UpdateIndexesForNode(tableName, transaction, id, normalized, table);
         _database.MetricsRegistry.AddNodesWritten(1);
     }
 
@@ -1265,7 +1265,7 @@ public sealed class BogConnection : IDisposable
             normalized = CoercePropertiesForTable(tableName, normalized);
             table.Upsert(GetRequiredWriteTransaction(), id, normalized);
             _database.GraphLog.AppendNode(tableName, id, normalized);
-            UpdateIndexesForNode(tableName, id, normalized, table);
+            UpdateIndexesForNode(tableName, GetRequiredWriteTransaction(), id, normalized, table);
             _database.MetricsRegistry.AddNodesWritten(1);
         });
     }
@@ -1395,8 +1395,8 @@ public sealed class BogConnection : IDisposable
         return false;
     }
 
-    private void UpdateIndexesForNode(string tableName, object id, Dictionary<string, object> props, NodeTableData table)
-        => _database.UpdateNodeIndexes(tableName, id, props, table);
+    private void UpdateIndexesForNode(string tableName, BogDb.Core.Transaction.Transaction tx, object id, Dictionary<string, object> props, NodeTableData table)
+        => _database.UpdateNodeIndexes(tableName, tx, id, props, table);
 
     private string FormatValue(object value)
     {

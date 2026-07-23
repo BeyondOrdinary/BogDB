@@ -373,6 +373,13 @@ public sealed class NodePropertyIndex
     public long Count(string propertyName)
         => _indexes.TryGetValue(propertyName, out var idx) ? idx.Count : 0;
 
+    /// <summary>Removes all entries from the named index while keeping the (disk-backed) index in place.</summary>
+    public void ClearIndex(string propertyName)
+    {
+        if (_indexes.TryGetValue(propertyName, out var idx))
+            idx.Clear();
+    }
+
     internal IEnumerable<KeyValuePair<string, IEnumerable<KeyValuePair<object, IReadOnlyList<long>>>>> EnumerateEntries()
     {
         foreach (var (propertyName, idx) in _indexes)

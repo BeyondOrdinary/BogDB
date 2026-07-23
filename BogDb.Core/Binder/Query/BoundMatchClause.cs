@@ -110,6 +110,13 @@ public class QueryRel
     public string UpperBound { get; }
     public string? PathVariableName { get; set; }
 
+    // Per-hop comprehension predicate for variable-length traversal: bound WHERE over the intermediate
+    // edge variable (PerHopRelVariable) and node variable (PerHopNodeVariable). Evaluated per edge inside
+    // RecursiveExtend to prune non-matching hops. Null unless the pattern carries a (rr, nn | WHERE …) filter.
+    public Expression? PerHopPredicate { get; set; }
+    public string? PerHopRelVariable { get; set; }
+    public string? PerHopNodeVariable { get; set; }
+
     public QueryRel(
         string variableName,
         List<string> tableNames,
