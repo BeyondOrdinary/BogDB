@@ -132,4 +132,53 @@ public class CreateIndexFunctionTests
                 Directory.Delete(path, recursive: true);
         }
     }
+
+    [Fact]
+    public void IndexScanDrivenDelete_RemovesEveryMatchingNode_NoneSkipped()
+    {
+        using var db = BogDatabase.CreateInMemory();
+        using var conn = new BogConnection(db);
+        Assert.True(conn.Query("CREATE NODE TABLE Doc(id INT64 PRIMARY KEY, src STRING)").IsSuccess);
+        for (var i = 1; i <= 5; i++)
+            Assert.True(conn.Query($"CREATE (:Doc {{id:{i}, src:'a'}})").IsSuccess);
+        Assert.True(conn.Query("CREATE (:Doc {id:6, src:'b'})").IsSuccess);
+        Assert.True(conn.Query("CALL create_index('Doc','src') RETURN *").IsSuccess);
+
+        // Delete all 'a' docs via the index scan. Each delete removes the node's offset from the same
+        // posting list the scan iterates — the scan must snapshot it, or it skips every other match.
+        Assert.True(conn.Query("MATCH (d:Doc) WHERE d.src = 'a' DELETE d").IsSuccess);
+
+        Assert.False(conn.Query("MATCH (d:Doc) WHERE d.src = 'a' RETURN d.id").HasNext()); // no stale hits
+        var all = conn.Query("MATCH (d:Doc) RETURN d.id ORDER BY d.id");
+        var remaining = new List<long>();
+        while (all.HasNext()) remaining.Add(all.GetNext().GetInt64(0));
+        Assert.Equal(new[] { 6L }, remaining); // only 'b' remains — nothing was skipped by the delete
+    }
+
+    [Fact]
+    public void DeleteThenReupsertSameKeys_LeavesNoStaleOrDuplicateIndexHits()
+    {
+        using var db = BogDatabase.CreateInMemory();
+        using var conn = new BogConnection(db);
+        Assert.True(conn.Query("CREATE NODE TABLE Doc(id STRING PRIMARY KEY, src STRING)").IsSuccess);
+        conn.BeginWriteTransaction();
+        foreach (var id in new[] { "x0", "x1", "x2" })
+            conn.UpsertNodeById("Doc", id, new Dictionary<string, object> { ["id"] = id, ["src"] = "s" });
+        conn.Commit();
+        Assert.True(conn.Query("CALL create_index('Doc','src') RETURN *").IsSuccess);
+
+        // "Source replacement" (as BogMem's ReplaceSource does it): delete-by-indexed-value, then re-upsert
+        // the same keys, in one transaction. Result must be each key exactly once — no stale, no duplicate.
+        conn.BeginWriteTransaction();
+        Assert.True(conn.Query("MATCH (d:Doc) WHERE d.src = 's' DELETE d").IsSuccess);
+        foreach (var id in new[] { "x0", "x1", "x2" })
+            conn.UpsertNodeById("Doc", id, new Dictionary<string, object> { ["id"] = id, ["src"] = "s" });
+        conn.Commit();
+
+        var q = conn.Query("MATCH (d:Doc) WHERE d.src = 's' RETURN d.id");
+        var ids = new List<string>();
+        while (q.HasNext()) ids.Add(q.GetNext().GetString(0));
+        ids.Sort();
+        Assert.Equal(new[] { "x0", "x1", "x2" }, ids);
+    }
 }
