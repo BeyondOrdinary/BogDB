@@ -151,7 +151,7 @@ public sealed class PhysicalMergeGraph : PhysicalOperator
 
             table.Upsert(context.Transaction, nodeId, properties);
             _database.GraphLog.AppendNode(tableName, nodeId, properties);
-            _database.UpdateNodeIndexes(tableName, nodeId, properties, table);
+            _database.UpdateNodeIndexes(tableName, context.Transaction, nodeId, properties, table);
             visibleNodeProps = new Dictionary<string, object>(properties, StringComparer.OrdinalIgnoreCase);
         }
 

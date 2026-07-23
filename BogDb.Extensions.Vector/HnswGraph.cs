@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using BogDb.Core.Main;
 
 namespace BogDb.Extensions.Vector;
 
@@ -29,6 +31,11 @@ internal sealed class HnswGraph
     // Node storage: nodeId → HnswNode
     private readonly Dictionary<int, HnswNode> _nodes = new();
 
+    // Tombstoned node IDs (soft-deleted: excluded from results, still traversable for routing) plus the
+    // reverse external-id → node-id map that lets incremental delete/update find nodes to tombstone.
+    private readonly HashSet<int> _deleted = new();
+    private readonly Dictionary<object, List<int>> _externalToNodeIds = new();
+
     // Entry point (highest-layer node)
     private int _entryPointId = -1;
     private int _maxLevel;
@@ -49,6 +56,9 @@ internal sealed class HnswGraph
 
     public int Count => _nodes.Count;
 
+    /// <summary>Number of live (non-tombstoned) nodes.</summary>
+    public int LiveCount => _nodes.Count - _deleted.Count;
+
     /// <summary>
     /// Insert a vector into the HNSW graph. Returns the internal node ID assigned.
     /// </summary>
@@ -58,6 +68,13 @@ internal sealed class HnswGraph
         var level = RandomLevel();
         var node = new HnswNode(id, vector, level, externalId);
         _nodes[id] = node;
+
+        if (externalId != null)
+        {
+            if (!_externalToNodeIds.TryGetValue(externalId, out var ids))
+                _externalToNodeIds[externalId] = ids = new List<int>();
+            ids.Add(id);
+        }
 
         if (_entryPointId < 0)
         {
@@ -119,6 +136,23 @@ internal sealed class HnswGraph
     }
 
     /// <summary>
+    /// Soft-deletes every node currently associated with <paramref name="externalId"/> (tombstone).
+    /// Tombstoned nodes are excluded from search results but remain in the graph for routing until the
+    /// next full rebuild compacts them. Returns the number of nodes newly tombstoned.
+    /// </summary>
+    public int Remove(object externalId)
+    {
+        if (externalId == null || !_externalToNodeIds.TryGetValue(externalId, out var nodeIds))
+            return 0;
+
+        var removed = 0;
+        foreach (var nodeId in nodeIds)
+            if (_nodes.ContainsKey(nodeId) && _deleted.Add(nodeId))
+                removed++;
+        return removed;
+    }
+
+    /// <summary>
     /// Search for the k nearest neighbors to the query vector.
     /// </summary>
     /// <param name="query">Query vector.</param>
@@ -143,10 +177,105 @@ internal sealed class HnswGraph
         var candidates = SearchLayer(query, ep, efSearch, 0);
 
         return candidates
+            .Where(c => _deleted.Count == 0 || !_deleted.Contains(c.NodeId))
             .OrderBy(c => c.Distance)
             .Take(k)
             .Select(c => new SearchResult(c.NodeId, c.Distance, _nodes[c.NodeId].ExternalId, _nodes[c.NodeId].Vector))
             .ToList();
+    }
+
+    // ── Persistence ──────────────────────────────────────────────────────────
+
+    /// <summary>Builds a node-id → external-id map for the registry from the current node set.</summary>
+    public Dictionary<int, object?> BuildNodeIdMap()
+        => _nodes.ToDictionary(kv => kv.Key, kv => kv.Value.ExternalId);
+
+    /// <summary>
+    /// Serializes the full graph (nodes, vectors, per-layer adjacency, external ids, tombstones, entry
+    /// point) so it can be restored on open without an O(n log n) rebuild. Construction parameters
+    /// (M, efConstruction) are not written — they come from the index definition on read.
+    /// </summary>
+    internal void WriteTo(BinaryWriter writer)
+    {
+        writer.Write(_entryPointId);
+        writer.Write(_maxLevel);
+        writer.Write(_nextNodeId);
+
+        writer.Write(_nodes.Count);
+        foreach (var (id, node) in _nodes)
+        {
+            writer.Write(id);
+            writer.Write(node.Level);
+
+            writer.Write(node.Vector.Length);
+            foreach (var component in node.Vector)
+                writer.Write(component);
+
+            GraphDataSerializer.WriteValue(writer, node.ExternalId);
+
+            for (var layer = 0; layer <= node.Level; layer++)
+            {
+                var neighbors = node.GetNeighbors(layer);
+                writer.Write(neighbors.Count);
+                foreach (var neighbor in neighbors)
+                    writer.Write(neighbor);
+            }
+        }
+
+        writer.Write(_deleted.Count);
+        foreach (var deleted in _deleted)
+            writer.Write(deleted);
+    }
+
+    /// <summary>Restores a graph written by <see cref="WriteTo"/>, rebinding the metric distance function.</summary>
+    internal static HnswGraph ReadFrom(
+        BinaryReader reader,
+        int m,
+        int efConstruction,
+        Func<float[], float[], double> distanceFunc)
+    {
+        var graph = new HnswGraph(m, efConstruction, distanceFunc);
+        graph._entryPointId = reader.ReadInt32();
+        graph._maxLevel = reader.ReadInt32();
+        graph._nextNodeId = reader.ReadInt32();
+
+        var nodeCount = reader.ReadInt32();
+        for (var i = 0; i < nodeCount; i++)
+        {
+            var id = reader.ReadInt32();
+            var level = reader.ReadInt32();
+
+            var vectorLength = reader.ReadInt32();
+            var vector = new float[vectorLength];
+            for (var k = 0; k < vectorLength; k++)
+                vector[k] = reader.ReadSingle();
+
+            var externalId = GraphDataSerializer.ReadValue(reader);
+            var node = new HnswNode(id, vector, level, externalId);
+
+            for (var layer = 0; layer <= level; layer++)
+            {
+                var neighborCount = reader.ReadInt32();
+                var neighbors = new List<int>(neighborCount);
+                for (var k = 0; k < neighborCount; k++)
+                    neighbors.Add(reader.ReadInt32());
+                node.SetNeighbors(layer, neighbors);
+            }
+
+            graph._nodes[id] = node;
+            if (externalId != null)
+            {
+                if (!graph._externalToNodeIds.TryGetValue(externalId, out var ids))
+                    graph._externalToNodeIds[externalId] = ids = new List<int>();
+                ids.Add(id);
+            }
+        }
+
+        var deletedCount = reader.ReadInt32();
+        for (var i = 0; i < deletedCount; i++)
+            graph._deleted.Add(reader.ReadInt32());
+
+        return graph;
     }
 
     // ── Core HNSW Algorithms ─────────────────────────────────────────────────

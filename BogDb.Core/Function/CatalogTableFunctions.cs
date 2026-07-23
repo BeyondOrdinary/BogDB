@@ -370,3 +370,63 @@ internal sealed class ShowWarningsTableFunction : ITableFunction
         yield break;
     }
 }
+
+// ── CREATE_INDEX ─────────────────────────────────────────────────────────────
+// Creates a secondary (non-primary-key) property index so the planner can serve
+// equality/prefix predicates via INDEX_SCAN instead of a full SCAN_NODE_PROPERTY.
+// Query-based counterpart to BogDatabase.CreateIndex; idempotent so re-runnable
+// schema setup is safe. For file-backed databases the index is disk-backed and
+// restored on reopen. Columns: table (STRING), property (STRING), status (STRING).
+
+internal sealed class CreateIndexTableFunction : ITableFunction
+{
+    private readonly BogDb.Core.Main.BogDatabase _database;
+
+    public CreateIndexTableFunction(BogDb.Core.Main.BogDatabase database)
+    {
+        _database = database;
+    }
+
+    public string Name => "CREATE_INDEX";
+
+    public IReadOnlyList<(string Name, string Type)>? Schema => new (string, string)[]
+    {
+        ("table", "STRING"), ("property", "STRING"), ("status", "STRING")
+    };
+
+    public IEnumerable<Dictionary<string, object?>> Invoke(IReadOnlyList<object?> args)
+    {
+        if (args.Count != 2)
+            throw new ArgumentException("create_index requires a table name and a property name.");
+        if (args[0] is not string tableName || string.IsNullOrWhiteSpace(tableName))
+            throw new ArgumentException("create_index requires the first argument to be a node table name.");
+        if (args[1] is not string propertyName || string.IsNullOrWhiteSpace(propertyName))
+            throw new ArgumentException("create_index requires the second argument to be a property name.");
+
+        if (_database.Catalog.GetTableCatalogEntry(null, tableName, useInternal: false)
+                is not BogDb.Core.Catalog.NodeTableCatalogEntry entry)
+            throw new ArgumentException($"create_index requires an existing node table: {tableName}");
+        if (!entry.ContainsProperty(propertyName))
+            throw new ArgumentException($"Property '{propertyName}' does not exist on table '{tableName}'.");
+
+        // Idempotent: creating an index that already exists is a no-op (safe for re-runnable schema setup).
+        if (_database.Catalog.ContainsIndexEntry(tableName, propertyName))
+        {
+            yield return new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["table"] = tableName,
+                ["property"] = propertyName,
+                ["status"] = "exists"
+            };
+            yield break;
+        }
+
+        _database.CreateIndex(tableName, propertyName);
+        yield return new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["table"] = tableName,
+            ["property"] = propertyName,
+            ["status"] = "created"
+        };
+    }
+}

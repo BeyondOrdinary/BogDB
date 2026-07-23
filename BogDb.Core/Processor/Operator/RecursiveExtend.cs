@@ -68,7 +68,7 @@ public sealed class RecursiveExtend : PhysicalOperator
                     continue;
                 }
 
-                _iterator = GetRecursivePaths(boundSrcId, actualSrcTableName, context.Transaction).GetEnumerator();
+                _iterator = GetRecursivePaths(boundSrcId, actualSrcTableName, context).GetEnumerator();
             }
 
             context.RestoreState(_inputState);
@@ -153,8 +153,9 @@ public sealed class RecursiveExtend : PhysicalOperator
     private IEnumerable<(object dstId, string dstTableName, List<Main.EdgeKey> edges)> GetRecursivePaths(
         object startId,
         string startTableName,
-        BogDb.Core.Transaction.Transaction tx)
+        ExecutionContext context)
     {
+        var tx = context.Transaction;
         var relTableNames = _queryRel.TableNames.Count > 0
             ? _queryRel.TableNames
             : (IReadOnlyList<string>)new List<string>(_database.RelTables.Keys);
@@ -184,7 +185,7 @@ public sealed class RecursiveExtend : PhysicalOperator
                     continue;
                 }
 
-                foreach (var step in EnumerateNextSteps(relTableName, relTable, currId, currentTableName, tx))
+                foreach (var step in EnumerateNextSteps(relTableName, relTable, currId, currentTableName, context))
                 {
                     var visitKey = (step.NextTableName, step.NextId);
                     if (visited.Contains(visitKey))
@@ -205,8 +206,9 @@ public sealed class RecursiveExtend : PhysicalOperator
         Main.RelTableData relTable,
         object currentId,
         string currentTableName,
-        BogDb.Core.Transaction.Transaction tx)
+        ExecutionContext context)
     {
+        var tx = context.Transaction;
         IEnumerable<KeyValuePair<Main.EdgeKey, Dictionary<string, object>>> edges = _queryRel.Direction switch
         {
             ArrowDirection.RIGHT => relTable.EnumerateOutgoingRows(currentId, tx),
@@ -223,9 +225,72 @@ public sealed class RecursiveExtend : PhysicalOperator
                 continue;
             }
 
+            // Per-hop comprehension filter: prune this edge if it fails the predicate. Because pruning
+            // happens before the edge is yielded/expanded, a path through a failing hop never continues.
+            if (_queryRel.PerHopPredicate != null &&
+                !PassesPerHopPredicate(context, relTableName, kvp.Value, nextId, tx))
+            {
+                continue;
+            }
+
             foreach (var nextTableName in ResolveNextTableNames(relTableName, currentTableName, nextId, tx))
             {
                 yield return (nextId, nextTableName, edge);
+            }
+        }
+    }
+
+    // Evaluates the variable-length per-hop predicate against a candidate edge (and the node it reaches),
+    // binding the comprehension's edge variable (rr) and node variable (nn) into the evaluation context.
+    private bool PassesPerHopPredicate(
+        ExecutionContext context,
+        string relTableName,
+        Dictionary<string, object> rawEdgeProperties,
+        object nextId,
+        BogDb.Core.Transaction.Transaction tx)
+    {
+        var edgeProperties = new Dictionary<string, object>(
+            _database.NormalizeRelPropertiesForRead(relTableName, rawEdgeProperties))
+        {
+            ["_label"] = relTableName,
+            ["_type"] = relTableName
+        };
+
+        var variables = context.CurrentVariableProperties ??= new Dictionary<string, Dictionary<string, object>>();
+
+        // Scope the comprehension variables (rr, nn) to THIS evaluation only: bind them, evaluate, then
+        // restore any prior binding of the same name. Without the restore, a comprehension variable that
+        // shadows an outer variable would leak the per-hop value downstream and corrupt that variable's rows.
+        var relKey = _queryRel.PerHopRelVariable!;
+        var hadRel = variables.TryGetValue(relKey, out var priorRel);
+        variables[relKey] = edgeProperties;
+
+        var nodeKey = _queryRel.PerHopNodeVariable;
+        var hasNodeKey = !string.IsNullOrEmpty(nodeKey);
+        var hadNode = false;
+        Dictionary<string, object>? priorNode = null;
+        if (hasNodeKey)
+        {
+            hadNode = variables.TryGetValue(nodeKey!, out priorNode);
+            if (TryResolveNode(nextId, _queryRel.DstNode.TableNames, tx, out _, out var nodeProperties))
+                variables[nodeKey!] = nodeProperties;
+            else
+                variables.Remove(nodeKey!); // landing node unresolved → nn.* is null, not a stale prior value
+        }
+
+        try
+        {
+            return ExpressionExecutionHelper.EvaluatePredicate(_queryRel.PerHopPredicate!, context);
+        }
+        finally
+        {
+            if (hadRel) variables[relKey] = priorRel!;
+            else variables.Remove(relKey);
+
+            if (hasNodeKey)
+            {
+                if (hadNode) variables[nodeKey!] = priorNode!;
+                else variables.Remove(nodeKey!);
             }
         }
     }

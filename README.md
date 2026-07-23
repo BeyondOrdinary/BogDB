@@ -79,6 +79,24 @@ var top3 = conn.Query(
     "MATCH (p:Person) RETURN p.name, p.score ORDER BY p.score DESC LIMIT 3");
 ```
 
+### Secondary Indexes (non-primary-key)
+
+Index any node property so equality/prefix predicates plan as an `INDEX_SCAN` instead of a full `SCAN_NODE_PROPERTY`. Indexes are disk-backed for file databases and restored on reopen. `create_index` is idempotent — safe to call in re-runnable schema setup:
+
+```csharp
+conn.Query("CALL create_index('Person', 'country')");  // columns: table, property, status ('created' | 'exists')
+
+// The predicate is now index-served; ORDER BY / SKIP / LIMIT paginate on top:
+conn.Query(@"
+    MATCH (p:Person) WHERE p.country = 'US'
+    RETURN p.name ORDER BY p.age DESC SKIP 20 LIMIT 10");
+
+// Confirm the plan uses the index:
+conn.Query("EXPLAIN MATCH (p:Person) WHERE p.country = 'US' RETURN p.name");  // → INDEX_SCAN
+```
+
+The planner picks index scans by estimated fan-out and handles multi-property predicates (union/intersect across per-property indexes).
+
 ### Recursive Path Traversal
 
 ```csharp
@@ -93,6 +111,35 @@ var paths = conn.Query(@"
 ```
 
 `LogicalRecursiveExtend` cooperates with `LimitPushDownRule` so `LIMIT` counts are propagated into the BFS frontier as an early-stop bound.
+
+**Per-hop filtering.** A comprehension filter prunes edges *during* traversal, so only matching hops extend the path — enabling, e.g., native temporal multi-hop traversal ("follow only edges valid at `$t`"):
+
+```csharp
+conn.Query(@"
+    MATCH (a:Account {id: 1})-[r:TRANSFER*1..4
+        (rr, nn | WHERE rr.valid_from <= $t AND (rr.valid_to IS NULL OR rr.valid_to > $t))
+    ]->(b:Account)
+    RETURN b.id, length(r)");
+```
+
+`rr` binds each intermediate edge and `nn` each intermediate node; the `WHERE` is evaluated per hop to prune — a path through a failing edge (or onto a failing node) does not continue. Works with `->`/`<-`/`-`(both), multi-type `:A|B`, and stays compatible with `LIMIT` early-stop.
+
+### Temporal (valid-time) edges
+
+BogDB has no dedicated temporal feature — but valid-time modeling is a first-class pattern over ordinary edge properties. Store `valid_from`/`valid_to` as **INT64 epoch** on a relationship, leave `valid_to` unset for open-ended intervals, and filter with a half-open `WHERE` (inclusive lower, exclusive upper, `NULL` = open):
+
+```csharp
+// "What was true at instant T?"  — the 'current' flag is independent of the as-of instant.
+conn.Query(@"
+    MATCH (e:Entity {id: $id})-[r:FACT]->(o:Entity)
+    WHERE r.valid_from <= $t AND (r.valid_to IS NULL OR r.valid_to > $t)
+    RETURN o.id, (r.valid_to IS NULL) AS current");
+
+// Invalidate: SET r.valid_to = $now.
+// Supersede: close the old interval + open a new one in one transaction (MVCC-atomic, rollback-safe).
+```
+
+Use INT64 epoch (not ISO strings) so comparisons stay numeric and type-consistent, and always keep the `valid_to IS NULL` guard — BogDB evaluates a comparison against `NULL` as false, so dropping the guard silently excludes still-open facts. See `TemporalKnowledgeGraphTests` for a full worked example (as-of, invalidate, supersede, timeline, both-directions). For **multi-hop** temporal traversal ("what was reachable at `$t`?"), push the same validity filter into the traversal itself with a per-hop comprehension — see [Recursive Path Traversal](#recursive-path-traversal).
 
 ### Scalar Functions — Broad Coverage
 
@@ -187,7 +234,7 @@ Custom data-source extensions implement `ITableFunction` and are registered at r
 | Extension | Purpose |
 |---|---|
 | `BogDb.Extensions.Json` | `LOAD FROM 'file.json'` table-scan support |
-| `BogDb.Extensions.Vector` | Vector similarity and embedding operations |
+| `BogDb.Extensions.Vector` | Vector similarity, embeddings, and HNSW ANN indexes |
 | `BogDb.Extensions.FTS` | Full-text search indexes |
 | `BogDb.Extensions.Algo` | Additional graph algorithms |
 | `BogDb.Extensions.HttpFS` | Read remote files over HTTP(S) |
@@ -213,6 +260,61 @@ public class MyScanFn : ITableFunction
 new MyExtension().Load(db);
 conn.Query("CALL scan_mydb('source.bin') RETURN *");
 ```
+
+### Vector / HNSW indexes
+
+`BogDb.Extensions.Vector` provides approximate nearest-neighbor (ANN) search over `FLOAT[]` embedding properties, backed by an HNSW graph, alongside the vector distance scalar functions (`vector_cosine_similarity`, `array_distance`, …).
+
+```csharp
+new VectorExtension().Load(db);
+
+conn.Query("CREATE NODE TABLE Document(id STRING, embedding FLOAT[])");
+conn.Query("CREATE (:Document {id:'a', embedding:[1.0, 0.0]})");
+
+// Build an index (metric: cosine | l2 | dotproduct)
+conn.Query("CALL create_vector_index('Document', 'doc_vec', 'embedding', 'cosine') RETURN *");
+
+// k-NN query → columns: rank, id, distance, embedding
+conn.Query("CALL query_vector_index('Document', 'doc_vec', [1.0, 0.0], 5) RETURN *");
+```
+
+| Function | Purpose |
+|---|---|
+| `create_vector_index(table, index, property [, metric])` | Build an HNSW index (options: `metric`, `mu`, `ml`, `pu`, `alpha`, `efc`) |
+| `query_vector_index(table, index, vector, k [, metric])` | k-NN search (option: `efs`) |
+| `rebuild_vector_index(table [, index])` | Rebuild the graph from current rows after a write batch |
+| `drop_vector_index(table, index)` | Remove an index |
+| `show_vector_indexes([table])` / `show_indexes()` | List registered indexes |
+
+**Distance semantics.** `query_vector_index` reports the same `distance` whether it serves a result from the HNSW fast path or the exact fallback: `cosine` → `1 − cosine_similarity`, `l2` → Euclidean distance, `dotproduct` → negated inner product. Lower is nearer.
+
+**Index lifecycle (incrementally maintained + persisted).** The HNSW graph is built by `create_vector_index`, maintained **incrementally at commit** (inserts/updates/deletes — an update tombstones the old vector and inserts the new; rollbacks are discarded), and **persisted to disk at checkpoint** so a reopen *restores* the graph rather than rebuilding it. On open the persisted graph is loaded only if its row-count stamp still matches the table, otherwise it is rebuilt from current rows. A staleness fingerprint makes `query_vector_index` fall back to an exact scan if a write ever bypasses maintenance, and `rebuild_vector_index` rebuilds from current rows (compacting tombstones) — so results stay correct either way.
+
+### Full-text search (FTS)
+
+`BogDb.Extensions.FTS` provides BM25-ranked full-text search over text properties, with an inverted index, phrase queries (`"exact phrase"`), stemming, and stop-word filtering.
+
+```csharp
+new FtsExtension().Load(db);
+
+conn.Query("CREATE NODE TABLE Article(id INT64 PRIMARY KEY, title STRING, body STRING)");
+// … insert rows …
+
+// Build an index over one or more text properties (BM25 k1/b are tunable)
+conn.Query("CALL CREATE_FTS_INDEX('Article', 'art_idx', ['title', 'body'], k1 := 1.5, b := 0.75) RETURN *");
+
+// Search → columns: node_offset, score
+conn.Query("CALL QUERY_FTS_INDEX('art_idx', 'graph database', 10) RETURN *");
+```
+
+| Function | Purpose |
+|---|---|
+| `CREATE_FTS_INDEX(table, index, [props] [, k1 := , b := ])` | Build a BM25 inverted index (defaults `k1 = 1.2`, `b = 0.75`) |
+| `QUERY_FTS_INDEX(index, query [, top_k] [, mode])` | Ranked search; `mode := 'conjunctive'` requires all terms |
+| `REBUILD_FTS_INDEX([index])` | Rebuild one index (or all) from current rows after a write batch |
+| `DROP_FTS_INDEX(index)` | Remove an index |
+
+**Index lifecycle.** Like vectors, FTS indexes are maintained **incrementally at commit** (inserts/updates/deletes, discarded on rollback) and **persisted to disk at checkpoint**, so a reopen restores the inverted index (validated by a row-count stamp) rather than rebuilding it. If a write bypasses maintenance, the next query transparently rebuilds — or call `REBUILD_FTS_INDEX` to control when that cost is paid.
 
 ### MCP-First Agent Integration
 
@@ -287,6 +389,7 @@ End-to-end sample apps live alongside the engine and double as integration cover
 | Sample | Form |
 |---|---|
 | [`BogDb.Samples.FraudGraph.Console`](BogDb.Samples.FraudGraph.Console/) | Console — fraud-ring detection over a transaction graph |
+| [`BogDb.Samples.TemporalGraph.Console`](BogDb.Samples.TemporalGraph.Console/) | Console — temporal reachability via per-hop filtered traversal |
 | [`BogDb.Samples.SocialGraph.Blazor`](BogDb.Samples.SocialGraph.Blazor/) | Blazor — friend/follower exploration |
 | [`BogDb.Samples.PackageEcosystem.Blazor`](BogDb.Samples.PackageEcosystem.Blazor/) | Blazor — NPM/NuGet dependency analysis |
 | [`BogDb.Samples.SqlToCypher.Blazor`](BogDb.Samples.SqlToCypher.Blazor/) | Blazor — SQL → Cypher translation playground |
@@ -332,3 +435,4 @@ End-to-end sample apps live alongside the engine and double as integration cover
 1. **Live SDK wiring for some external connectors:** Postgres, DuckDB, and SQLite extensions are present; some live SDK integrations are still being hardened against production workloads.
 2. **C API:** native-style `c_api` parity is intentionally out of scope; the supported public surface is the C# API and the MCP servers.
 3. **Feature parity matrix:** ACOP documentation under `docs/acop/` is the canonical contract reference; a unified feature-matrix document is not yet published at the repo root.
+4. **Index durability & compaction:** vector (HNSW) and FTS index structures are maintained incrementally, persisted at checkpoint, and restored on open (validated by a row-count stamp; rebuilt on mismatch). Residual limitations: the stamp catches inserts/deletes but not an in-place property update made after the last checkpoint but before a crash (a `rebuild_*` fixes it — the stamp is a fast validity check, not a full content hash); bulk `COPY` applies one incremental update per row; and HNSW deletes are tombstones that only a rebuild compacts.

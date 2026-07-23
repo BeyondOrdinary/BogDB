@@ -2035,6 +2035,18 @@ public class BogDatabase : IDisposable
         }
     }
 
+    /// <summary>
+    /// Returns an amortized O(1), best-effort fingerprint of node-write activity for
+    /// <paramref name="tableName"/>, reflecting the rows currently staged in the in-memory
+    /// (uncheckpointed) overlay. Derived indexes such as the vector HNSW graph capture this at
+    /// build time and re-check it at query time to detect that live inserts may have made them
+    /// stale, so they can fall back to an exact scan for correctness. This is a staleness *hint*,
+    /// not an authoritative row count: it does not by itself observe in-place property updates,
+    /// and a checkpoint that flushes the overlay may shift it. Rebuild an index to refresh it fully.
+    /// </summary>
+    public long GetNodeWriteFingerprint(string tableName)
+        => NodeTables.TryGetValue(tableName, out var table) ? table.Count : 0L;
+
     internal Dictionary<string, object> NormalizeNodePropertiesForRead(
         string tableName,
         Dictionary<string, object> properties)
@@ -2165,13 +2177,44 @@ public class BogDatabase : IDisposable
         return false;
     }
 
+    private readonly List<BogDb.Core.Extension.INodeMutationListener> _nodeMutationListeners = new();
+
+    /// <summary>
+    /// Registers a listener notified of node upserts/deletes so extensions can incrementally maintain
+    /// derived indexes (vector, FTS). Notifications fire inside write transactions, before commit; see
+    /// <see cref="BogDb.Core.Extension.INodeMutationListener"/> for the commit-deferral contract.
+    /// </summary>
+    public void RegisterNodeMutationListener(BogDb.Core.Extension.INodeMutationListener listener)
+    {
+        if (listener != null && !_nodeMutationListeners.Contains(listener))
+            _nodeMutationListeners.Add(listener);
+    }
+
+    internal void NotifyNodeMutation(
+        Transaction.Transaction tx,
+        string tableName,
+        object id,
+        BogDb.Core.Extension.NodeMutationKind kind,
+        IReadOnlyDictionary<string, object>? properties)
+    {
+        // Only fire for live write transactions with registered listeners — recovery/checkpoint/dummy
+        // transactions are excluded (indexes are rebuilt on open), and the common no-listener case is free.
+        if (_nodeMutationListeners.Count == 0 || tx == null || !tx.IsWriteTransaction())
+            return;
+
+        foreach (var listener in _nodeMutationListeners)
+            listener.OnNodeMutation(tx, tableName, id, kind, properties);
+    }
+
     /// <summary>
     /// Update all registered property indexes for a node that was just written.
     /// Called by PhysicalInsert and BogConnection insert paths after writing to NodeTables.
     /// Only indexed properties are touched — mirrors UpdateIndexesForNode in BogConnection.
     /// </summary>
-    internal void UpdateNodeIndexes(string tableName, object id, Dictionary<string, object> props, NodeTableData table)
+    internal void UpdateNodeIndexes(string tableName, Transaction.Transaction tx, object id, Dictionary<string, object> props, NodeTableData table)
     {
+        NotifyNodeMutation(tx, tableName, id, BogDb.Core.Extension.NodeMutationKind.Upsert, props);
+
         if (!NodeIndexes.TryGetValue(tableName, out var nodeIdx) || !nodeIdx.HasAnyIndex)
             return;
 
@@ -2193,13 +2236,17 @@ public class BogDatabase : IDisposable
         object id,
         NodeTableData table)
     {
-        if (!NodeIndexes.TryGetValue(tableName, out var nodeIdx) || !nodeIdx.HasAnyIndex)
+        // Refresh if there is a core property index OR an extension mutation listener to notify — an
+        // update on a table with only a vector/FTS index must still reach UpdateNodeIndexes (which fires
+        // the Upsert notification before its own core-index guard).
+        var hasCoreIndex = NodeIndexes.TryGetValue(tableName, out var nodeIdx) && nodeIdx.HasAnyIndex;
+        if (!hasCoreIndex && _nodeMutationListeners.Count == 0)
             return;
 
         if (!table.TryGetProperties(tx, id, out var props) || props is null)
             return;
 
-        UpdateNodeIndexes(tableName, id, props, table);
+        UpdateNodeIndexes(tableName, tx, id, props, table);
     }
 
     /// <summary>
@@ -2212,6 +2259,8 @@ public class BogDatabase : IDisposable
         object id,
         NodeTableData table)
     {
+        NotifyNodeMutation(tx, tableName, id, BogDb.Core.Extension.NodeMutationKind.Delete, null);
+
         if (!NodeIndexes.TryGetValue(tableName, out var nodeIdx) || !nodeIdx.HasAnyIndex)
             return;
 
@@ -2555,6 +2604,7 @@ public class BogDatabase : IDisposable
     {
         StandaloneTableFunctionRegistry.Register(new Function.ShowTablesTableFunction());
         StandaloneTableFunctionRegistry.Register(new Function.TableInfoTableFunction());
+        StandaloneTableFunctionRegistry.Register(new Function.CreateIndexTableFunction(this));
         StandaloneTableFunctionRegistry.Register(new Function.ShowFunctionsTableFunction());
         StandaloneTableFunctionRegistry.Register(new Function.ShowIndexesTableFunction());
         StandaloneTableFunctionRegistry.Register(new Function.ShowSequencesTableFunction());
@@ -3039,7 +3089,10 @@ public class BogDatabase : IDisposable
                 // Use DiskBackedNodeIndex as backing store — future writes persist to .kzix
                 var indexPath = GetIndexFilePath(tableName, propertyName);
                 index.CreateDiskBackedIndex(propertyName, indexPath);
-                // Populate from snapshot data (which is the source of truth)
+                // CreateDiskBackedIndex loads the .kzix, but the snapshot (recomputed from live rows) is the
+                // source of truth — the on-disk index can hold stale offsets after delete/reinsert cycles.
+                // Clear the loaded entries first so we neither double-populate nor keep stale ones.
+                index.ClearIndex(propertyName);
                 foreach (var (key, offsets) in propertySnapshot.Entries)
                 {
                     foreach (var nodeOffset in offsets)

@@ -14,6 +14,7 @@
   <Project Path="BogDb.Mcp.Codegen.Server/BogDb.Mcp.Codegen.Server.csproj" />
   <Project Path="BogDb.Mcp.Server/BogDb.Mcp.Server.csproj" />
   <Project Path="BogDb.Samples.FraudGraph.Console/BogDb.Samples.FraudGraph.Console.csproj" />
+  <Project Path="BogDb.Samples.TemporalGraph.Console/BogDb.Samples.TemporalGraph.Console.csproj" />
   <Project Path="BogDb.Samples.LLMBenchmarks/BogDb.Samples.LLMBenchmarks.csproj" />
   <Project Path="BogDb.Samples.LLMBenchmarks.Blazor/BogDb.Samples.LLMBenchmarks.Blazor.csproj" />
   <Project Path="BogDb.Samples.MonsterManual.Blazor/BogDb.Samples.MonsterManual.Blazor.csproj" />

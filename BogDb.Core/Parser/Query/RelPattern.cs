@@ -18,6 +18,13 @@ public class RelPattern
     public string LowerBound { get; }
     public string UpperBound { get; }
 
+    // Variable-length per-hop comprehension: -[r:REL*lo..hi (rr, nn | WHERE <predicate over rr/nn>)]->
+    // rr is the intermediate edge variable, nn the intermediate node variable, and the filter (if present)
+    // is evaluated per hop during traversal to prune non-matching edges. Null when no comprehension is used.
+    public string? RecursiveRelVariable { get; }
+    public string? RecursiveNodeVariable { get; }
+    public ParsedExpression? RecursiveFilter { get; }
+
     public RelPattern(
         string variableName,
         List<string> relTypes,
@@ -25,7 +32,10 @@ public class RelPattern
         List<(string, ParsedExpression)> propertyKeyValues,
         ParsedExpression? propertyBagExpression = null,
         string lowerBound = "1",
-        string upperBound = "1")
+        string upperBound = "1",
+        string? recursiveRelVariable = null,
+        string? recursiveNodeVariable = null,
+        ParsedExpression? recursiveFilter = null)
     {
         VariableName = variableName;
         RelTypes = relTypes;
@@ -34,5 +44,8 @@ public class RelPattern
         PropertyBagExpression = propertyBagExpression;
         LowerBound = lowerBound;
         UpperBound = upperBound;
+        RecursiveRelVariable = recursiveRelVariable;
+        RecursiveNodeVariable = recursiveNodeVariable;
+        RecursiveFilter = recursiveFilter;
     }
 }
