@@ -16,6 +16,7 @@
     <ProjectReference Include="..\BogDb.Samples.SqlToCypher.Blazor\BogDb.Samples.SqlToCypher.Blazor.csproj" />
     <ProjectReference Include="..\BogDb.Samples.TacticalMessaging.Blazor\BogDb.Samples.TacticalMessaging.Blazor.csproj" />
     <ProjectReference Include="..\BogDb.Mcp.Server\BogDb.Mcp.Server.csproj" />
+    <ProjectReference Include="..\BogDb.Acop.Mcp.Server\BogDb.Acop.Mcp.Server.csproj" />
   </ItemGroup>
 
   <ItemGroup>
