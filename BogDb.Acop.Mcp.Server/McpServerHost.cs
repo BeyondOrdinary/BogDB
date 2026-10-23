@@ -183,6 +183,7 @@ public sealed class McpServerHost
                             @enum = new[] { "renew", "release", "complete" }
                         },
                         progress_summary = new { type = "string" },
+                        requested_ttl_seconds = new { type = "integer", description = "Renew only: new lease length in seconds (default 300)." },
                         completion_evidence = new { type = "object" }
                     },
                     required = new[] { "claim_id", "action" }

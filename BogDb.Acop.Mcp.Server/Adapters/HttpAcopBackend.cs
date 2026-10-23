@@ -60,10 +60,14 @@ public sealed class HttpAcopBackend : IAcopBackend, IDisposable
 
         JsonObject payload = action switch
         {
+            // CLAiR's RenewLeaseRequest binds requestedTtlSeconds (required); the old renewSeconds
+            // field never bound, so every renew through this tool returned a bodiless 400.
             "renew" => new JsonObject
             {
                 ["claimId"] = claimId,
-                ["renewSeconds"] = ReadInt(input, "renew_seconds") ?? 300
+                ["requestedTtlSeconds"] = ReadInt(input, "requested_ttl_seconds") ?? ReadInt(input, "renew_seconds") ?? 300,
+                ["progressSummary"] = ReadString(input, "progress_summary"),
+                ["expectedRenewalCount"] = ReadInt(input, "expected_renewal_count")
             },
             "release" => new JsonObject
             {
